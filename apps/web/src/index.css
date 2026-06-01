@@ -1,0 +1,111 @@
+@import "tailwindcss";
+
+/*
+ * Default theme = LIGHT. The `@theme` block becomes Tailwind utility
+ * tokens *and* CSS custom properties on :root, so every `bg-canvas`,
+ * `text-text-primary`, etc. resolves to the values below.
+ *
+ * `:root[data-theme="dark"]` overrides only the colors that need to
+ * differ. The element-bound `data-theme` attribute is set in
+ * `main.tsx` before React renders (no flash on reload).
+ */
+
+@theme {
+  /* Light surfaces */
+  --color-canvas: #ffffff;
+  --color-panel: #f9fafb;
+  --color-panel-elevated: #ffffff;
+  --color-chrome: #f3f4f6;
+  --color-border: #e5e7eb;
+  --color-border-strong: #d1d5db;
+
+  /* Light type */
+  --color-text-primary: #18181b;
+  --color-text-secondary: #52525b;
+  --color-text-muted: #9ca3af;
+
+  /* Accent (indigo, tuned for white backgrounds) */
+  --color-accent: #4f46e5;
+  --color-accent-hover: #4338ca;
+  --color-accent-active: #3730a3;
+
+  /* Clip pills — readable against either surface */
+  --color-clip-video: #4f46e5;
+  --color-clip-video-strong: #6366f1;
+  --color-clip-audio: #059669;
+  --color-clip-audio-strong: #10b981;
+
+  /* Signals */
+  --color-playhead: #dc2626;
+  --color-danger: #dc2626;
+
+  --font-display: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+:root[data-theme="dark"] {
+  --color-canvas: #0a0a0b;
+  --color-panel: #131316;
+  --color-panel-elevated: #1c1c21;
+  --color-chrome: #232329;
+  --color-border: #2a2a31;
+  --color-border-strong: #3a3a44;
+
+  --color-text-primary: #f4f4f5;
+  --color-text-secondary: #a1a1aa;
+  --color-text-muted: #71717a;
+
+  --color-accent: #6366f1;
+  --color-accent-hover: #7c7eef;
+  --color-accent-active: #5557df;
+
+  --color-playhead: #ef4444;
+  --color-danger: #ef4444;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background-color: var(--color-canvas);
+  color: var(--color-text-primary);
+  font-family: var(--font-display);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+}
+
+button {
+  font-family: inherit;
+}
+
+/* Thin, theme-aware scrollbars for the timeline strip */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+.scrollbar-thin::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: var(--color-border-strong);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-text-muted);
+}
+
+.no-select {
+  user-select: none;
+  -webkit-user-select: none;
+}
