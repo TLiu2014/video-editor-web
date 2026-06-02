@@ -1,4 +1,5 @@
 import {
+  CaptionsIcon,
   CircleDotIcon,
   ClipboardCopyIcon,
   ClipboardPasteIcon,
@@ -58,6 +59,7 @@ export function useCommands(triggers: {
   openProject: () => void;
   openSettings: () => void;
   openExport: () => void;
+  openCaptions: () => void;
   saveArchive: () => void;
   openArchive: () => void;
   pickMedia: () => void;
@@ -172,6 +174,14 @@ export function useCommands(triggers: {
           },
         });
       },
+    },
+    {
+      id: 'auto-captions',
+      label: 'Auto Captions…',
+      keywords: ['caption', 'subtitle', 'transcribe', 'speech', 'srt', 'ai'],
+      icon: <CaptionsIcon />,
+      disabled: !hasClips,
+      action: triggers.openCaptions,
     },
     {
       id: 'split',

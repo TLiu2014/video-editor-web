@@ -1,6 +1,7 @@
 import { clipRate, ffmpegAtempoChain } from './clipRate';
 import { ffmpegEffectFilters } from './effects';
 import { isTrackAudible } from './trackAudibility';
+import type { AudioFormat } from '../types/stt';
 import type {
   AudioClip,
   TextOverlay,
@@ -557,4 +558,238 @@ export function buildExportPlan(
   args.push('-movflags', '+faststart', '-y', outputFile);
 
   return { inputs, overlayInputs, args, outputFile };
+}
+
+export interface AudioExtractionPlan {
+  inputs: { name: string; file: File }[];
+  args: string[];
+  outputFile: string;
+  /** MIME type of the produced file, for tagging the output Blob. */
+  mime: string;
+}
+
+/** Mono speech bitrate for compressed extraction (kbps is plenty). */
+const CAPTION_AUDIO_BITRATE = '64k';
+
+interface AudioFormatSpec {
+  ext: string;
+  mime: string;
+  /** Codec args appended after the channel/sample-rate flags. */
+  codecArgs: string[];
+  /** Approx bytes per second, for pre-flight size estimates. */
+  bytesPerSecond: (sampleRate: number) => number;
+}
+
+const AUDIO_FORMAT_SPECS: Record<AudioFormat, AudioFormatSpec> = {
+  // Uncompressed 16-bit mono PCM. Guaranteed-encodable, large.
+  wav: {
+    ext: 'wav',
+    mime: 'audio/wav',
+    codecArgs: ['-c:a', 'pcm_s16le'],
+    bytesPerSecond: (sr) => sr * 2,
+  },
+  // AAC in an MP4 container.
+  m4a: {
+    ext: 'm4a',
+    mime: 'audio/mp4',
+    codecArgs: ['-c:a', 'aac', '-b:a', CAPTION_AUDIO_BITRATE, '-movflags', '+faststart'],
+    bytesPerSecond: () => 64000 / 8,
+  },
+  // Raw ADTS AAC stream.
+  aac: {
+    ext: 'aac',
+    mime: 'audio/aac',
+    codecArgs: ['-c:a', 'aac', '-b:a', CAPTION_AUDIO_BITRATE],
+    bytesPerSecond: () => 64000 / 8,
+  },
+  // The following aren't emitted by us (no encoder in the wasm core)
+  // but are defined so the type stays total.
+  mp3: {
+    ext: 'mp3',
+    mime: 'audio/mpeg',
+    codecArgs: ['-c:a', 'libmp3lame', '-b:a', CAPTION_AUDIO_BITRATE],
+    bytesPerSecond: () => 64000 / 8,
+  },
+  ogg: {
+    ext: 'ogg',
+    mime: 'audio/ogg',
+    codecArgs: ['-c:a', 'libvorbis', '-b:a', CAPTION_AUDIO_BITRATE],
+    bytesPerSecond: () => 64000 / 8,
+  },
+  flac: {
+    ext: 'flac',
+    mime: 'audio/flac',
+    codecArgs: ['-c:a', 'flac'],
+    bytesPerSecond: (sr) => sr * 1, // ~50% of PCM, rough
+  },
+};
+
+/** Public view of a format's container extension + MIME type. */
+export function audioFormatSpec(format: AudioFormat): {
+  ext: string;
+  mime: string;
+} {
+  const spec = AUDIO_FORMAT_SPECS[format];
+  return { ext: spec.ext, mime: spec.mime };
+}
+
+export interface AudioExtractionOptions {
+  sampleRate?: number;
+  /** Output codec/container. Defaults to `wav`. */
+  format?: AudioFormat;
+  /**
+   * Restrict extraction to a `[start, end)` window of the timeline
+   * (seconds). Used for chunked transcription of long projects. The
+   * emitted audio's PTS is reset to 0, so cue times come back
+   * relative to `start`.
+   */
+  window?: { start: number; end: number };
+}
+
+/**
+ * Estimate the encoded size (bytes) of an extraction of `seconds`
+ * worth of audio in `format`. Used by the captions UI to show a
+ * pre-flight size and decide whether to chunk.
+ */
+export function estimateExtractedAudioBytes(
+  seconds: number,
+  format: AudioFormat,
+  sampleRate = 16000,
+): number {
+  return Math.round(AUDIO_FORMAT_SPECS[format].bytesPerSecond(sampleRate) * seconds);
+}
+
+/**
+ * Build an audio-only FFmpeg invocation that mixes the timeline down
+ * to a single mono WAV — the input the auto-captions feature hands to
+ * an STT provider.
+ *
+ * Reuses the same per-clip segment builders and audibility rules as
+ * the export so the transcribed audio matches "what you hear": muted
+ * / non-solo'd tracks drop out, gaps become silence, clip volumes and
+ * fades are applied.
+ *
+ * Output is 16 kHz mono `pcm_s16le` WAV: speech models downsample to
+ * ~16 kHz regardless, mono halves the bytes, and PCM/WAV is both
+ * guaranteed-encodable by the wasm core (no extra codec) and accepted
+ * by every supported vendor.
+ */
+export function buildAudioExtractionPlan(
+  project: VideoProject,
+  options: AudioExtractionOptions = {},
+): AudioExtractionPlan {
+  const sampleRate = options.sampleRate ?? 16000;
+  const format = options.format ?? 'wav';
+  const spec = AUDIO_FORMAT_SPECS[format];
+  const window = options.window;
+
+  const videoTracks = project.tracks.filter((t) => t.type === 'video');
+  const baseVideoTrack = videoTracks[0];
+  const v1Audible = baseVideoTrack
+    ? isTrackAudible(baseVideoTrack, project.tracks)
+    : false;
+  const audioTracks = project.tracks.filter(
+    (t): t is TimelineTrack =>
+      t.type === 'audio' && isTrackAudible(t, project.tracks),
+  );
+
+  const videoClips = ((baseVideoTrack?.clips ?? []) as VideoClip[])
+    .filter((c): c is VideoClip => c.kind === 'video')
+    .slice()
+    .sort((a, b) => a.startOffset - b.startOffset);
+
+  const audioClipsByTrack: AudioClip[][] = audioTracks.map((track) =>
+    (track.clips as AudioClip[])
+      .filter((c): c is AudioClip => c.kind === 'audio')
+      .slice()
+      .sort((a, b) => a.startOffset - b.startOffset),
+  );
+  const allAudioClips = audioClipsByTrack.flat();
+
+  const includeVideoAudio = v1Audible && videoClips.length > 0;
+  if (!includeVideoAudio && allAudioClips.length === 0) {
+    throw new Error(
+      'No audible audio on the timeline to transcribe. Unmute a track or add audio first.',
+    );
+  }
+
+  // Register inputs for every contributing clip. Video clips are all
+  // registered (even silent ones) so `buildAudioSegmentsFromVideo`
+  // can emit aligned silence rather than skipping them.
+  const inputs: { name: string; file: File }[] = [];
+  const clipInputIndex = new Map<string, number>();
+  const seenFiles = new Map<File, number>();
+  for (const clip of [
+    ...(includeVideoAudio ? videoClips : []),
+    ...allAudioClips,
+  ]) {
+    let idx = seenFiles.get(clip.file);
+    if (idx === undefined) {
+      idx = inputs.length;
+      inputs.push({
+        name: `input_${idx}.${chooseExt(clip.file)}`,
+        file: clip.file,
+      });
+      seenFiles.set(clip.file, idx);
+    }
+    clipInputIndex.set(clip.id, idx);
+  }
+
+  const videoAudio = includeVideoAudio
+    ? buildAudioSegmentsFromVideo(videoClips, clipInputIndex, sampleRate)
+    : { parts: [], labels: [] };
+  const audioTrackResults = audioClipsByTrack.map((clips, idx) =>
+    buildAudioSegmentsFromAudio(clips, clipInputIndex, sampleRate, `at${idx}_`),
+  );
+
+  const filterParts: string[] = [
+    ...videoAudio.parts,
+    ...audioTrackResults.flatMap((r) => r.parts),
+  ];
+
+  const audioMixSources: string[] = [];
+  if (videoAudio.labels.length > 0) {
+    filterParts.push(concatStmt(videoAudio.labels, 'mix_v', 'a'));
+    audioMixSources.push('mix_v');
+  }
+  audioTrackResults.forEach((result, idx) => {
+    if (result.labels.length === 0) return;
+    const label = `mix_a${idx}`;
+    filterParts.push(concatStmt(result.labels, label, 'a'));
+    audioMixSources.push(label);
+  });
+
+  if (audioMixSources.length === 0) {
+    throw new Error('No audible audio on the timeline to transcribe.');
+  }
+
+  // Mix everything down to [mixfull], then optionally trim to the
+  // requested window (resetting PTS so cue times are window-relative).
+  if (audioMixSources.length === 1) {
+    filterParts.push(`[${audioMixSources[0]}]anull[mixfull]`);
+  } else {
+    const refs = audioMixSources.map((l) => `[${l}]`).join('');
+    filterParts.push(
+      `${refs}amix=inputs=${audioMixSources.length}:duration=longest:dropout_transition=0:normalize=0,aresample=${sampleRate}[mixfull]`,
+    );
+  }
+
+  if (window) {
+    filterParts.push(
+      `[mixfull]atrim=start=${window.start.toFixed(3)}:end=${window.end.toFixed(3)},asetpts=PTS-STARTPTS[outa]`,
+    );
+  } else {
+    filterParts.push(`[mixfull]anull[outa]`);
+  }
+
+  const args: string[] = [];
+  for (const input of inputs) args.push('-i', input.name);
+  args.push('-filter_complex', filterParts.join(';'));
+  args.push('-map', '[outa]');
+  args.push('-vn', '-ac', '1', '-ar', String(sampleRate), ...spec.codecArgs);
+
+  const outputFile = `captions_audio.${spec.ext}`;
+  args.push('-y', outputFile);
+
+  return { inputs, args, outputFile, mime: spec.mime };
 }

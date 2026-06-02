@@ -180,6 +180,11 @@ export interface TimelineActions {
   ungroupClips: (groupId: string) => void;
 
   addOverlay: (overlay: TextOverlay) => void;
+  /**
+   * Append multiple overlays in a single mutation (one history
+   * entry). Used by auto-captions, which adds many overlays at once.
+   */
+  addOverlays: (overlays: TextOverlay[]) => void;
   removeOverlay: (overlayId: OverlayId) => void;
   updateOverlay: (
     overlayId: OverlayId,
@@ -1065,6 +1070,20 @@ export const useTimelineStore = create<TimelineStore>()(
             overlays: [...state.currentProject.overlays, overlay],
           },
           selectedOverlayId: overlay.id,
+          selectedClipId: null,
+        };
+      }),
+
+    addOverlays: (overlays) =>
+      set((state) => {
+        if (!state.currentProject || overlays.length === 0) return state;
+        return {
+          currentProject: {
+            ...state.currentProject,
+            overlays: [...state.currentProject.overlays, ...overlays],
+          },
+          selectedOverlayId:
+            overlays[overlays.length - 1]?.id ?? state.selectedOverlayId,
           selectedClipId: null,
         };
       }),

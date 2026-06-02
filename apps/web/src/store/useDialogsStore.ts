@@ -12,16 +12,20 @@ interface DialogsState {
   projectList: boolean;
   projectSettings: boolean;
   export: boolean;
+  captions: boolean;
   setProjectList: (open: boolean) => void;
   setProjectSettings: (open: boolean) => void;
   setExport: (open: boolean) => void;
+  setCaptions: (open: boolean) => void;
 }
 
 export const useDialogsStore = create<DialogsState>((set) => ({
   projectList: false,
   projectSettings: false,
   export: false,
+  captions: false,
   setProjectList: (open) => set({ projectList: open }),
   setProjectSettings: (open) => set({ projectSettings: open }),
   setExport: (open) => set({ export: open }),
+  setCaptions: (open) => set({ captions: open }),
 }));

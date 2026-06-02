@@ -1,7 +1,14 @@
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile } from '@ffmpeg/util';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { buildExportPlan, type ExportOptions } from '../lib/filterGraph';
+import {
+  audioFormatSpec,
+  buildAudioExtractionPlan,
+  buildExportPlan,
+  type AudioExtractionOptions,
+  type ExportOptions,
+} from '../lib/filterGraph';
+import type { AudioFormat } from '../types/stt';
 import { renderOverlayToPNG } from '../lib/textOverlayPng';
 import type { VideoProject } from '../types/timeline';
 
@@ -67,6 +74,27 @@ export interface UseFFmpegResult {
   renderProject: (
     project: VideoProject,
     options?: RenderOptions,
+  ) => Promise<Blob>;
+  /**
+   * Mix the timeline's audible audio down to a single mono Blob in
+   * the requested format/window. Used by the auto-captions feature,
+   * which sends the result to an STT provider. Caller owns the Blob.
+   */
+  extractAudio: (
+    project: VideoProject,
+    options?: AudioExtractionOptions,
+  ) => Promise<Blob>;
+  /**
+   * Cheaply cut a `[start, end)` window (seconds) out of an
+   * already-extracted compressed audio Blob via stream copy — no
+   * re-decode. Used to split a long extraction into provider-sized
+   * pieces. The returned Blob's PTS still starts at the window, so
+   * callers offset cue times by `start` themselves.
+   */
+  sliceAudio: (
+    audio: Blob,
+    window: { start: number; end: number },
+    format: AudioFormat,
   ) => Promise<Blob>;
 }
 
@@ -228,6 +256,107 @@ export function useFFmpeg(options: UseFFmpegOptions = {}): UseFFmpegResult {
     [isLoaded, load, getInstance],
   );
 
+  const extractAudio = useCallback(
+    async (
+      project: VideoProject,
+      options: AudioExtractionOptions = {},
+    ): Promise<Blob> => {
+      if (!isLoaded) await load();
+      const ffmpeg = getInstance();
+      const plan = buildAudioExtractionPlan(project, options);
+
+      setProgress(0);
+      for (const input of plan.inputs) {
+        const bytes = await fetchFile(input.file);
+        await ffmpeg.writeFile(input.name, bytes);
+      }
+
+      const exitCode = await ffmpeg.exec(plan.args);
+      if (exitCode !== 0) {
+        throw new Error(
+          `Audio extraction failed (ffmpeg code ${exitCode}). Check the browser console for the full log.`,
+        );
+      }
+
+      const data = await ffmpeg.readFile(plan.outputFile);
+      const bytes =
+        data instanceof Uint8Array
+          ? data
+          : new TextEncoder().encode(String(data));
+      const blob = new Blob([bytes as BlobPart], { type: plan.mime });
+
+      try {
+        await ffmpeg.deleteFile(plan.outputFile);
+        for (const input of plan.inputs) {
+          await ffmpeg.deleteFile(input.name);
+        }
+      } catch {
+        // Best-effort cleanup.
+      }
+
+      return blob;
+    },
+    [isLoaded, load, getInstance],
+  );
+
+  const sliceAudio = useCallback(
+    async (
+      audio: Blob,
+      window: { start: number; end: number },
+      format: AudioFormat,
+    ): Promise<Blob> => {
+      if (!isLoaded) await load();
+      const ffmpeg = getInstance();
+      const { ext, mime } = audioFormatSpec(format);
+      const inName = `slice_in.${ext}`;
+      const outName = `slice_out.${ext}`;
+
+      await ffmpeg.writeFile(
+        inName,
+        new Uint8Array(await audio.arrayBuffer()),
+      );
+
+      // `-ss` before `-i` seeks the input cheaply; `-c copy` muxes the
+      // existing AAC frames without re-encoding, so this is fast and
+      // adds no quality loss.
+      const duration = Math.max(0.05, window.end - window.start);
+      const args = [
+        '-ss',
+        window.start.toFixed(3),
+        '-i',
+        inName,
+        '-t',
+        duration.toFixed(3),
+        '-c',
+        'copy',
+        '-y',
+        outName,
+      ];
+
+      const exitCode = await ffmpeg.exec(args);
+      if (exitCode !== 0) {
+        throw new Error(`Audio split failed (ffmpeg code ${exitCode}).`);
+      }
+
+      const data = await ffmpeg.readFile(outName);
+      const bytes =
+        data instanceof Uint8Array
+          ? data
+          : new TextEncoder().encode(String(data));
+      const blob = new Blob([bytes as BlobPart], { type: mime });
+
+      try {
+        await ffmpeg.deleteFile(inName);
+        await ffmpeg.deleteFile(outName);
+      } catch {
+        // Best-effort cleanup.
+      }
+
+      return blob;
+    },
+    [isLoaded, load, getInstance],
+  );
+
   return {
     isLoading,
     isLoaded,
@@ -235,5 +364,7 @@ export function useFFmpeg(options: UseFFmpegOptions = {}): UseFFmpegResult {
     progress,
     load,
     renderProject,
+    extractAudio,
+    sliceAudio,
   };
 }

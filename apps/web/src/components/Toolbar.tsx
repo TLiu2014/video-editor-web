@@ -1,4 +1,5 @@
 import {
+  CaptionsIcon,
   DownloadIcon,
   FilmIcon,
   FolderOpenIcon,
@@ -37,7 +38,9 @@ import { useTimelineStore } from '../store/useTimelineStore';
 import { ExportDialog } from './ExportDialog';
 import { ProjectListDialog } from './ProjectListDialog';
 import { ProjectNameEditor } from './ProjectNameEditor';
+import { CaptionsDialog } from './CaptionsDialog';
 import { ProjectSettingsDialog } from './ProjectSettingsDialog';
+import { SettingsModal } from './SettingsModal';
 import { ThemeToggle } from './ThemeToggle';
 import { Button } from './ui/Button';
 import * as Menu from './ui/DropdownMenu';
@@ -76,6 +79,8 @@ export function Toolbar() {
   const setOpenExport = useDialogsStore((s) => s.setExport);
   const openSettings = useDialogsStore((s) => s.projectSettings);
   const setOpenSettings = useDialogsStore((s) => s.setProjectSettings);
+  const openCaptions = useDialogsStore((s) => s.captions);
+  const setOpenCaptions = useDialogsStore((s) => s.setCaptions);
 
   const [importing, setImporting] = useState(false);
   const [importNotice, setImportNotice] = useState<string | null>(null);
@@ -321,6 +326,13 @@ export function Toolbar() {
             >
               Add Text Overlay
             </Menu.Item>
+            <Menu.Item
+              icon={<CaptionsIcon />}
+              disabled={!project || !hasClips || !ffmpegLoaded}
+              onSelect={() => setOpenCaptions(true)}
+            >
+              Auto Captions…
+            </Menu.Item>
             <Menu.Separator />
             <Menu.Item
               icon={<Trash2Icon />}
@@ -376,6 +388,7 @@ export function Toolbar() {
       <div className="flex-1" />
 
       <div className="flex shrink-0 items-center gap-2">
+        <SettingsModal />
         <ThemeToggle />
 
         <Button
@@ -403,6 +416,7 @@ export function Toolbar() {
         open={openSettings}
         onOpenChange={setOpenSettings}
       />
+      <CaptionsDialog open={openCaptions} onOpenChange={setOpenCaptions} />
 
       {archiveError ? (
         <div

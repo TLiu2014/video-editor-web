@@ -38,10 +38,12 @@ function AppShell() {
   const setProjectList = useDialogsStore((s) => s.setProjectList);
   const setProjectSettings = useDialogsStore((s) => s.setProjectSettings);
   const setExport = useDialogsStore((s) => s.setExport);
+  const setCaptions = useDialogsStore((s) => s.setCaptions);
   const commands = useCommands({
     openProject: () => setProjectList(true),
     openSettings: () => setProjectSettings(true),
     openExport: () => setExport(true),
+    openCaptions: () => setCaptions(true),
     saveArchive: () => {
       void downloadCurrentProjectAsZip();
     },
