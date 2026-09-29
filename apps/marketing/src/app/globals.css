@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+/**
+ * Marketing theme tokens.
+ *
+ * Two layers:
+ *   1. CSS variables defined under :root / [data-theme] that swap
+ *      at runtime when the html dataset changes.
+ *   2. @theme block that exposes those variables as Tailwind v4
+ *      tokens, generating utilities like `bg-canvas`, `text-ink`,
+ *      `border-line` that automatically follow the active theme.
+ *
+ * Light is the default. Dark applies when `<html data-theme="dark">`.
+ * The inline script in layout.tsx sets data-theme before paint to
+ * avoid the "flash of wrong theme" on first load.
+ */
+
+:root,
+[data-theme="light"] {
+  --theme-canvas: #ffffff;
+  --theme-canvas-soft: #f7f7f9;
+  --theme-surface: #ffffff;
+  --theme-surface-elevated: #fbfbfd;
+  --theme-ink: #0b0b14;
+  --theme-ink-muted: #4b5563;
+  --theme-ink-subtle: #6b7280;
+  --theme-accent: #4f46e5;
+  --theme-accent-strong: #4338ca;
+  --theme-accent-soft: #eef2ff;
+  --theme-line: rgba(15, 23, 42, 0.08);
+  --theme-line-strong: rgba(15, 23, 42, 0.14);
+  --theme-shadow: 0 1px 2px rgba(15, 23, 42, 0.04),
+    0 4px 12px rgba(15, 23, 42, 0.06);
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  --theme-canvas: #0a0a0f;
+  --theme-canvas-soft: #0f0f17;
+  --theme-surface: #11111a;
+  --theme-surface-elevated: #16161f;
+  --theme-ink: #f5f5fa;
+  --theme-ink-muted: #a1a1b3;
+  --theme-ink-subtle: #6b7280;
+  --theme-accent: #818cf8;
+  --theme-accent-strong: #a5b4fc;
+  --theme-accent-soft: rgba(99, 102, 241, 0.14);
+  --theme-line: rgba(255, 255, 255, 0.08);
+  --theme-line-strong: rgba(255, 255, 255, 0.16);
+  --theme-shadow: 0 1px 2px rgba(0, 0, 0, 0.3),
+    0 4px 16px rgba(0, 0, 0, 0.4);
+  color-scheme: dark;
+}
+
+@theme {
+  --color-canvas: var(--theme-canvas);
+  --color-canvas-soft: var(--theme-canvas-soft);
+  --color-surface: var(--theme-surface);
+  --color-surface-elevated: var(--theme-surface-elevated);
+  --color-ink: var(--theme-ink);
+  --color-ink-muted: var(--theme-ink-muted);
+  --color-ink-subtle: var(--theme-ink-subtle);
+  --color-accent: var(--theme-accent);
+  --color-accent-strong: var(--theme-accent-strong);
+  --color-accent-soft: var(--theme-accent-soft);
+  --color-line: var(--theme-line);
+  --color-line-strong: var(--theme-line-strong);
+}
+
+html,
+body {
+  background: var(--theme-canvas);
+  color: var(--theme-ink);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Tasteful crossfade on theme switch — limited to surface and text
+   so transforms/animations elsewhere don't get caught in it. */
+html.theme-transition,
+html.theme-transition * {
+  transition: background-color 200ms ease, color 200ms ease,
+    border-color 200ms ease;
+}

@@ -1,0 +1,18 @@
+# Next.js
+/.next/
+/out/
+*.tsbuildinfo
+next-env.d.ts
+
+# Env (do not commit secrets; .env.example is fine)
+.env*.local
+.env.local
+.env.development.local
+.env.production.local
+
+# Vercel
+.vercel
+
+# IDE
+.idea
+.DS_Store

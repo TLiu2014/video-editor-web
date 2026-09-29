@@ -98,7 +98,7 @@ export function ExportDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         title="Export project"
-        description="Renders the timeline locally with FFmpeg.wasm. Nothing leaves your browser."
+        description="Renders the timeline locally in your browser. Nothing leaves your device."
       >
         <div className="flex flex-col gap-5">
           <ExportSummary totalBytes={projectBytes} />
@@ -125,8 +125,8 @@ export function ExportDialog({
                   : isLoaded
                     ? 'Start export'
                     : isLoading
-                      ? 'Loading FFmpeg…'
-                      : 'FFmpeg not ready'}
+                      ? 'Loading engine…'
+                      : 'Engine not ready'}
               </Button>
             </div>
           ) : null}
@@ -150,8 +150,8 @@ export function ExportDialog({
                 />
               </div>
               <p className="text-[11px] text-text-muted">
-                Larger projects take longer — encoding runs single-threaded in
-                wasm.
+                Larger projects take longer — encoding runs locally on your
+                CPU.
               </p>
             </div>
           ) : null}
@@ -248,16 +248,16 @@ function MemoryNotice({
         {isBlock ? (
           <>
             Source media totals <strong>{formatBytes(bytes)}</strong>, which
-            exceeds the safe ceiling for the single-threaded WebAssembly
-            export (~1.8 GB). Shorten the timeline, trim clips, or re-encode
-            sources to smaller files before exporting.
+            exceeds the safe in-browser export ceiling (~1.8 GB). Shorten the
+            timeline, trim clips, or re-encode sources to smaller files
+            before exporting.
           </>
         ) : (
           <>
             Source media totals <strong>{formatBytes(bytes)}</strong>. Large
-            projects approach the WebAssembly 32-bit memory ceiling and may
-            crash the export tab. Watch for the browser tab freezing and
-            consider trimming first.
+            projects approach the browser's 32-bit memory ceiling and may
+            crash the export tab. Watch for the tab freezing and consider
+            trimming first.
           </>
         )}
       </div>

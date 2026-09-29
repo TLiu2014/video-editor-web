@@ -171,8 +171,8 @@ export function ProjectSettingsDialog({
             <div className="flex items-start gap-2.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-[12px] text-amber-300">
               <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" />
               <div className="leading-relaxed">
-                Above 1080p the export runs against the WebAssembly 32-bit
-                memory ceiling much faster. Prefer the multi-threaded core
+                Above 1080p the export runs against the browser's 32-bit
+                memory ceiling much faster. Prefer the multi-threaded engine
                 (cross-origin isolated page) and keep total source bytes
                 modest.
               </div>

@@ -3,3 +3,8 @@ packages:
   - "packages/*"
 allowBuilds:
   esbuild: true
+  # Next.js transitive deps: sharp powers next/image optimization,
+  # unrs-resolver is the Rust-based module resolver bundled with
+  # eslint-config-next. Both legitimately need post-install builds.
+  sharp: true
+  unrs-resolver: true

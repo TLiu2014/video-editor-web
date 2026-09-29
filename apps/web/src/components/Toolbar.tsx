@@ -4,6 +4,7 @@ import {
   FilmIcon,
   FolderOpenIcon,
   FolderPlusIcon,
+  HomeIcon,
   PackageIcon,
   PackageOpenIcon,
   Redo2Icon,
@@ -37,7 +38,7 @@ import { useHistoryStore } from '../store/useHistoryStore';
 import { useTimelineStore } from '../store/useTimelineStore';
 import { ExportDialog } from './ExportDialog';
 import { ProjectListDialog } from './ProjectListDialog';
-import { ProjectNameEditor } from './ProjectNameEditor';
+import { ProjectSwitcher } from './ProjectSwitcher';
 import { CaptionsDialog } from './CaptionsDialog';
 import { ProjectSettingsDialog } from './ProjectSettingsDialog';
 import { SettingsModal } from './SettingsModal';
@@ -226,7 +227,7 @@ export function Toolbar() {
         </div>
         <div className="flex flex-col leading-tight">
           {project ? (
-            <ProjectNameEditor name={project.name} />
+            <ProjectSwitcher name={project.name} />
           ) : (
             <span className="text-[14px] font-semibold text-text-primary">
               video-editor-web
@@ -388,6 +389,20 @@ export function Toolbar() {
       <div className="flex-1" />
 
       <div className="flex shrink-0 items-center gap-2">
+        {/* Link back to the marketing site. Reads VITE_MARKETING_URL
+            at build time; defaults to the Next dev port so a fresh
+            `pnpm dev` works without env config. */}
+        <a
+          href={
+            import.meta.env.VITE_MARKETING_URL ?? 'http://localhost:3000'
+          }
+          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-chrome px-3 text-[12px] text-text-secondary transition hover:text-text-primary"
+          title="Back to homepage"
+          aria-label="Back to homepage"
+        >
+          <HomeIcon className="size-4" />
+          Home
+        </a>
         <SettingsModal />
         <ThemeToggle />
 
@@ -402,7 +417,7 @@ export function Toolbar() {
               : !hasClips
                 ? 'Import media first'
                 : !ffmpegLoaded
-                  ? 'FFmpeg is still loading'
+                  ? 'Engine is still loading'
                   : 'Render the project to MP4'
           }
         >

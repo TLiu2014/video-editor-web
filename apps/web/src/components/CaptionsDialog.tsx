@@ -192,8 +192,8 @@ export function CaptionsDialog({
                 {isLoaded
                   ? 'Generate captions'
                   : isLoading
-                    ? 'Loading FFmpeg…'
-                    : 'FFmpeg not ready'}
+                    ? 'Loading engine…'
+                    : 'Engine not ready'}
               </Button>
             </div>
           ) : null}

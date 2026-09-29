@@ -15,7 +15,7 @@ export function StatusBar() {
   const { isLoaded, isLoading, multiThread, progress } = useFFmpegContext();
   const { isSaving, lastSavedAt } = usePersistenceContext();
   const hasProject = useTimelineStore((s) => s.currentProject !== null);
-  const ffmpegValue = isLoading
+  const engineValue = isLoading
     ? `loading ${progress}%`
     : isLoaded
       ? `ready · ${multiThread ? 'MT' : 'ST'}`
@@ -25,7 +25,7 @@ export function StatusBar() {
     <footer className="no-select flex h-7 shrink-0 items-center justify-between border-t border-border bg-panel px-3 text-[11px] text-text-muted">
       <div className="flex items-center gap-4">
         <StatusItem
-          label="FFmpeg"
+          label="Engine"
           icon={
             isLoading ? (
               <Loader2Icon className="size-3 animate-spin" />
@@ -35,7 +35,7 @@ export function StatusBar() {
               <CircleDashedIcon className="size-3" />
             )
           }
-          value={ffmpegValue}
+          value={engineValue}
         />
         <StatusItem
           label="Storage"

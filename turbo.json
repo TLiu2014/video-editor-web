@@ -3,11 +3,24 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**"]
+      "outputs": [
+        "dist/**",
+        ".next/**",
+        "!.next/cache/**"
+      ],
+      "env": ["NODE_ENV"],
+      "passThroughEnv": ["NEXT_PUBLIC_*", "VITE_*"]
     },
     "dev": {
       "cache": false,
-      "persistent": true
+      "persistent": true,
+      "passThroughEnv": ["NEXT_PUBLIC_*", "VITE_*"]
+    },
+    "start": {
+      "cache": false,
+      "persistent": true,
+      "dependsOn": ["build"],
+      "passThroughEnv": ["NEXT_PUBLIC_*"]
     },
     "lint": {},
     "typecheck": {
