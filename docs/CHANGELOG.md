@@ -8,7 +8,7 @@ Status of the remaining gaps is tracked at the bottom.
 
 ## 2026-10-21
 
-### Keyframes for picture-in-picture and annotations
+### Keyframes for picture-in-picture and annotations — `28b2e82`
 - **PiP motion:** keyframed position, scale and rotation for clips on V2 and above. Turn on **Animate** in the PiP section; after that, sliders and preview drags set keyframes at the playhead. Sky-blue diamonds mark them on the clip. Opacity stays fixed, because animating it would be too slow to export in the browser.
 - **Motion paths for text and annotations:** turn on **Animate position**, then drag the overlay in the preview at different times. Diamonds show on its overlay-lane bar, and moving the bar moves the animation with it.
 - All keyframes now share one easing engine (`lib/keyframes.ts`), and zoom & pan was moved onto it.
