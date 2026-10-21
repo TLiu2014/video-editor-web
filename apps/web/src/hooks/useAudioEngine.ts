@@ -6,6 +6,7 @@ import {
 } from '../lib/audioGraph';
 import { clipRate } from '../lib/clipRate';
 import { fadeEnvelope } from '../lib/fadeEnvelope';
+import { mediaRateFactor, mediaShouldPlay } from '../lib/shuttle';
 import { isTrackAudible } from '../lib/trackAudibility';
 import { useTimelineStore } from '../store/useTimelineStore';
 import type { AudioClip, ClipId, TrackId } from '../types/timeline';
@@ -90,7 +91,9 @@ export function useAudioEngine(): void {
       }
 
       const playhead = state.playheadPosition;
-      const isPlaying = state.isPlaying;
+      // Reverse / stopped → paused; forward shuttle → sped up.
+      const isPlaying = mediaShouldPlay(state);
+      const speed = mediaRateFactor(state);
 
       for (const clip of clips) {
         let ent = entries.get(clip.id);
@@ -124,8 +127,8 @@ export function useAudioEngine(): void {
           if (Math.abs(ent.audio.currentTime - target) > 0.1) {
             ent.audio.currentTime = target;
           }
-          if (ent.audio.playbackRate !== rate) {
-            ent.audio.playbackRate = rate;
+          if (ent.audio.playbackRate !== rate * speed) {
+            ent.audio.playbackRate = rate * speed;
           }
           if (isPlaying && ent.audio.paused) {
             void ent.audio.play().catch(() => undefined);
@@ -141,6 +144,7 @@ export function useAudioEngine(): void {
     const unsubs = [
       useTimelineStore.subscribe((s) => s.playheadPosition, sync),
       useTimelineStore.subscribe((s) => s.isPlaying, sync),
+      useTimelineStore.subscribe((s) => s.shuttleSpeed, sync),
       useTimelineStore.subscribe((s) => s.currentProject, sync),
     ];
     sync();

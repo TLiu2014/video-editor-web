@@ -28,6 +28,7 @@ function usePlayhead(): number {
 
 export function Transport() {
   const isPlaying = useTimelineStore((s) => s.isPlaying);
+  const shuttleSpeed = useTimelineStore((s) => s.shuttleSpeed);
   const project = useTimelineStore((s) => s.currentProject);
   const setPlaying = useTimelineStore((s) => s.setPlaying);
   const updatePlayhead = useTimelineStore((s) => s.updatePlayhead);
@@ -89,6 +90,15 @@ export function Transport() {
       </div>
 
       <div className="flex items-center gap-2 font-mono text-[12px] tabular-nums text-text-secondary">
+        {isPlaying && shuttleSpeed !== 1 ? (
+          <span
+            data-shuttle-badge
+            className="rounded bg-accent/15 px-1.5 py-0.5 text-[11px] text-accent"
+            title="Shuttle speed (J / K / L)"
+          >
+            {shuttleSpeed < 0 ? '◀◀' : '▶▶'} {Math.abs(shuttleSpeed)}×
+          </span>
+        ) : null}
         <PlayheadInput playhead={playhead} duration={duration} disabled={disabled} />
         <span className="text-text-muted">/</span>
         <span>{formatTime(duration)}</span>

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { clipRate } from '../lib/clipRate';
 import { clipCssFilter } from '../lib/effects';
 import { fadeEnvelope } from '../lib/fadeEnvelope';
+import { mediaRateFactor, mediaShouldPlay } from '../lib/shuttle';
 import { stillUrl } from '../lib/stills';
 import { useTimelineStore } from '../store/useTimelineStore';
 import type { VideoClip } from '../types/timeline';
@@ -194,12 +195,14 @@ function PreviewOverlayClip({ clipId }: { clipId: string }) {
       if (Math.abs(video.currentTime - target) > 0.05) {
         video.currentTime = target;
       }
-      if (video.playbackRate !== rate) {
-        video.playbackRate = rate;
+      const playRate = rate * mediaRateFactor(state);
+      if (video.playbackRate !== playRate) {
+        video.playbackRate = playRate;
       }
-      if (state.isPlaying && video.paused) {
+      const shouldPlay = mediaShouldPlay(state);
+      if (shouldPlay && video.paused) {
         void video.play().catch(() => undefined);
-      } else if (!state.isPlaying && !video.paused) {
+      } else if (!shouldPlay && !video.paused) {
         video.pause();
       }
       // Layer opacity multiplies the user-set PiP opacity with the
@@ -213,9 +216,11 @@ function PreviewOverlayClip({ clipId }: { clipId: string }) {
       sync,
     );
     const unsubPlay = useTimelineStore.subscribe((s) => s.isPlaying, sync);
+    const unsubShuttle = useTimelineStore.subscribe((s) => s.shuttleSpeed, sync);
     return () => {
       unsubP();
       unsubPlay();
+      unsubShuttle();
     };
   }, [clip?.id, clip?.startOffset, clip?.duration, clip?.trimStart, clip]);
 

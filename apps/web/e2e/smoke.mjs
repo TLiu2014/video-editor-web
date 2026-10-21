@@ -294,6 +294,34 @@ await page.keyboard.press('Escape'); await wait();
   await page.keyboard.press('Escape'); await wait();
 }
 
+// JKL shuttle.
+{
+  const playheadNow = () => page.evaluate(() => {
+    const v = document.querySelector('input[aria-label*="layhead"], input[title*="layhead"]');
+    return v ? v.value : null;
+  });
+  const tc = (txt) => { const m = /(\d+):(\d+)\.(\d+)/.exec(txt ?? ''); return m ? +m[1] * 60 + +m[2] + +m[3] / 100 : NaN; };
+  await page.$eval('[data-timeline-surface]', (el) => { el.parentElement.scrollLeft = 0; }); await wait(200);
+  const sf = await (await page.$('[data-timeline-surface]')).boundingBox();
+  await page.mouse.click(sf.x + 3 * 80, sf.y + 8); await wait(200);
+  await page.keyboard.press('KeyL'); await page.keyboard.press('KeyL'); await wait(150);
+  const badge = await page.$eval('[data-shuttle-badge]', (e) => e.textContent).catch(() => null);
+  const t0 = tc(await playheadNow());
+  await wait(1000);
+  const t1 = tc(await playheadNow());
+  ok('L L shuttles forward at 2×', /2×/.test(badge ?? '') && t1 - t0 > 1.5 && t1 - t0 < 2.6, `${badge} Δ=${(t1 - t0).toFixed(2)}`);
+  await page.keyboard.press('KeyJ'); await wait(800);
+  const t2 = tc(await playheadNow());
+  ok('J reverses', t2 < t1, `${t1} → ${t2}`);
+  await page.keyboard.press('KeyK'); await wait(300);
+  const t3 = tc(await playheadNow());
+  await wait(400);
+  ok('K stops', tc(await playheadNow()) === t3 && !(await page.$('[data-shuttle-badge]')));
+  await page.keyboard.down('KeyK'); await page.keyboard.press('KeyL'); await page.keyboard.up('KeyK'); await wait(200);
+  const t4 = tc(await playheadNow());
+  ok('K+L steps one frame', Math.abs(t4 - t3 - 1 / 30) < 0.02, `${t3} → ${t4}`);
+}
+
 // Export through ffmpeg.wasm and wait for the download button.
 await page.keyboard.down('Meta'); await page.keyboard.press('KeyE'); await page.keyboard.up('Meta'); await wait(500);
 await page.waitForFunction(() => [...document.querySelectorAll('button')].some((b) => b.textContent?.includes('Start export') && !b.disabled), { timeout: 60000 });

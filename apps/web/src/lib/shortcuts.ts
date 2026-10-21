@@ -20,6 +20,8 @@ export const SHORTCUT_GROUPS: { title: string; items: ShortcutEntry[] }[] = [
     title: 'Playback & navigation',
     items: [
       { keys: ['Space'], label: 'Play / pause', origin: 'All editors' },
+      { keys: ['J', 'K', 'L'], label: 'Shuttle: reverse / stop / forward — repeat J or L for 2×, 4×, 8×', origin: 'Premiere, FCP, Resolve' },
+      { keys: ['K+J', 'K+L'], label: 'Step one frame back / forward', origin: 'Premiere, FCP, Resolve' },
       { keys: ['Home', 'End'], label: 'Go to start / end', origin: 'Premiere, FCP' },
       { keys: ['↑', '↓'], label: 'Previous / next edit point', origin: 'Premiere, FCP' },
       { keys: ['←', '→'], label: 'Nudge selection (or playhead when nothing selected); ⇧ = 10×' },

@@ -1,6 +1,6 @@
 # Editing Guide
 
-This guide describes the editing features supported in the web video editor. Use it as a reference for what you can do today and how to do it. For how the editor is built, and which established editor (Camtasia, Premiere, Final Cut Pro…) each behavior comes from, see [ARCHITECTURE.md](ARCHITECTURE.md).
+This guide describes the editing features supported in the web video editor. What changed recently is listed in [CHANGELOG.md](CHANGELOG.md). Use it as a reference for what you can do today and how to do it. For how the editor is built, and which established editor (Camtasia, Premiere, Final Cut Pro…) each behavior comes from, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Quick start
 
@@ -98,6 +98,12 @@ Use the transport bar below the preview:
 |-----|--------|
 | **Space** | Play / pause |
 | **← / →** | Move playhead by 0.1 seconds (when no clip is selected) |
+
+**Shuttle (J / K / L):** **L** plays forward and **J** plays backward.
+- Press either again to speed up: 2×, 4×, 8×. Pressing the other key switches direction at 1×.
+- **K** stops. Holding **K** and tapping **J** or **L** steps one frame.
+- While shuttling, the speed shows next to the time display.
+- Playing backward shows the picture without sound.
 
 **Seek (scrub):**
 
@@ -410,7 +416,9 @@ Drag the borders between the media sidebar, the preview, the Properties panel an
 | Shortcut | Action |
 |----------|--------|
 | **?** | Show all shortcuts |
-| **Space** | Play / pause |
+| **Space** | Play / pause (always at 1×) |
+| **J / K / L** | Shuttle: reverse / stop / forward. Press J or L again for 2×, 4×, 8× |
+| **K + J / K + L** | Step one frame back / forward |
 | **Home / End** | Go to start / end |
 | **↑ / ↓** | Previous / next edit point |
 | **S** | Split at playhead |

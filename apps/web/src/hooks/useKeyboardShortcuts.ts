@@ -13,6 +13,7 @@ import {
   ungroupSelection,
 } from '../lib/editActions';
 import { triggerMediaPicker } from '../lib/filePickers';
+import { nextShuttleSpeed } from '../lib/shuttle';
 import { computeProjectDuration } from '../lib/projectMetrics';
 import {
   chooseMajorInterval,
@@ -37,7 +38,9 @@ import type {
 /**
  * Global keyboard shortcuts. The user-facing catalogue (shown by `?`)
  * is `lib/shortcuts.ts` — update both together.
- *   Space             play / pause
+ *   Space             play / pause (at 1×)
+ *   J / K / L         shuttle: reverse / stop / forward; repeat J or L
+ *                     for 2× 4× 8×; hold K + tap J / L to step a frame
  *   S                 split selected clips (or all crossed) at the playhead
  *   Q / W             trim start / end of the clip under the playhead to
  *                     the playhead (Shift+Q / Shift+W ripple the trim)
@@ -66,6 +69,9 @@ import type {
  * pressed. Inputs, textareas, and contentEditable elements opt out
  * entirely so renames and dialogs aren't intercepted.
  */
+/** Whether K is held down — K + J / L steps single frames. */
+let kHeld = false;
+
 export function useKeyboardShortcuts(): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -277,7 +283,41 @@ export function useKeyboardShortcuts(): void {
         case 'Space': {
           if (!project) return;
           e.preventDefault();
+          // Plain play/pause always runs at 1× (clears any shuttle).
+          state.setShuttleSpeed(1);
           state.setPlaying(!state.isPlaying);
+          return;
+        }
+        case 'KeyK': {
+          if (!project) return;
+          e.preventDefault();
+          kHeld = true;
+          if (state.isPlaying) state.setPlaying(false);
+          return;
+        }
+        case 'KeyJ':
+        case 'KeyL': {
+          if (!project) return;
+          e.preventDefault();
+          const direction = e.code === 'KeyL' ? 1 : -1;
+          if (kHeld) {
+            // K held + J / L: step one frame.
+            state.setPlaying(false);
+            state.updatePlayhead(
+              Math.max(
+                0,
+                Math.min(
+                  computeProjectDuration(project),
+                  state.playheadPosition + direction / (project.frameRate || 30),
+                ),
+              ),
+            );
+            return;
+          }
+          state.setShuttleSpeed(
+            nextShuttleSpeed(state.shuttleSpeed, state.isPlaying, direction),
+          );
+          if (!state.isPlaying) state.setPlaying(true);
           return;
         }
         case 'KeyS': {
@@ -335,8 +375,21 @@ export function useKeyboardShortcuts(): void {
       }
     };
 
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'KeyK') kHeld = false;
+    };
+    // Losing focus mid-press would otherwise leave K "stuck" down.
+    const onBlur = () => {
+      kHeld = false;
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onBlur);
+    };
   }, []);
 }
 

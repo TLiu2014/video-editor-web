@@ -4,7 +4,7 @@ A browser-only non-linear video editor (NLE). There is no backend: media stays o
 
 This doc covers how the pieces fit, what each feature does, and where a feature's behavior comes from in an established editor. The project's reference editor is **Camtasia**, but behavior is not required to match it. Where a feature follows another editor, or none, the [Feature lineage](#feature-lineage) table says so.
 
-For end-user instructions, see [EDITING_GUIDE.md](EDITING_GUIDE.md).
+For end-user instructions, see [EDITING_GUIDE.md](EDITING_GUIDE.md); for what changed when, see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -117,7 +117,9 @@ VideoProject
 
 ### 2.3 Playback and preview
 
-- **`usePlaybackEngine`** is a single `requestAnimationFrame` clock that advances the playhead. Nothing is tied to a media element's own clock, because a timeline has gaps and several sources.
+- **`usePlaybackEngine`** is a single `requestAnimationFrame` clock that advances the playhead by `dt × shuttleSpeed`.
+  - JKL shuttle (`lib/shuttle.ts`): speeds of ±1, 2, 4 and 8×.
+  - Media elements play only when moving forward, with their rate multiplied by the speed. In reverse they stay paused and follow the playhead by seeking, so there's picture but no sound. Nothing is tied to a media element's own clock, because a timeline has gaps and several sources.
 - **`Preview`**
   - It keeps one `<video>` element seeked to the active V1 clip and draws picture-in-picture layers from V2 and above.
   - It applies clip effects as CSS `filter`, fades as opacity (`fadeEnvelope`), and speed as `playbackRate`.
@@ -260,6 +262,7 @@ Which established editor each behavior follows. "Own" means a choice made for th
 | ⌘J join | Own | Neither Premiere nor FCP binds a key to join by default. |
 | ⌘I import, ⌘E export | ⌘I: Premiere, Camtasia (Ctrl+I); ⌘E: FCP | Premiere exports with ⌘M. |
 | Home / End, ↑ / ↓ edit points | Premiere, FCP | |
+| J / K / L shuttle, K + J / L frame step | Premiere, FCP, Resolve | Speeds 1/2/4/8×; reverse plays the picture without sound. Space always resets to 1×. |
 | T = add text | Own | |
 | Delete range (and close the gap) | Premiere *Extract* (′) | |
 | Trim to range (keep only In→Out) | Own | No standard one-key equivalent. |
@@ -290,7 +293,7 @@ Which established editor each behavior follows. "Own" means a choice made for th
 - Keyframes only for zoom & pan on V1. There's no keyframed animation for PiP position, opacity, annotations or text, and no per-keyframe easing choice. `zoompan` positions in whole pixels, so very slow pans can show slight stepping.
 - Annotations and text fade, but have no other animation (no motion or scale-in), and there are no blur, spotlight or sketch-motion shapes. There are no cursor or zoom-and-pan effects. Animated GIFs import as their first frame.
 - Export is single-threaded (see section 1).
-- No JKL shuttle, no track lock, no track height control, no slip or slide tools.
+- No track lock, no track height control, no slip or slide tools.
 - Text overlays: no font family, weight, background or alignment; they aren't on a track.
 - Audio from clips on V2 and above is always muted (preview and export).
 - PiP has no on-canvas rotate handle and no snapping or guides.

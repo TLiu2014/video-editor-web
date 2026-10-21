@@ -75,6 +75,11 @@ export interface TimelineState {
   playheadPosition: number;
   isPlaying: boolean;
   /**
+   * Transport speed while playing: 1 = normal, 2/4/8 = fast forward,
+   * negative = reverse (JKL shuttle — see lib/shuttle.ts).
+   */
+  shuttleSpeed: number;
+  /**
    * Primary single-clip selection — drives PropertiesPanel and the
    * delete shortcut. Mirrors `selectedClipIds[0]` for convenience.
    */
@@ -355,6 +360,7 @@ export interface TimelineActions {
   /** 60fps-hot path. Keep this allocation-free. */
   updatePlayhead: (seconds: number) => void;
   setPlaying: (playing: boolean) => void;
+  setShuttleSpeed: (speed: number) => void;
 
   /**
    * Split whichever clip on the given track currently sits under the
@@ -434,6 +440,7 @@ const initialState: TimelineState = {
   currentProject: null,
   playheadPosition: 0,
   isPlaying: false,
+  shuttleSpeed: 1,
   selectedClipId: null,
   selectedClipIds: [],
   selectedOverlayId: null,
@@ -1533,7 +1540,11 @@ export const useTimelineStore = create<TimelineStore>()(
     // the number actually changes.
     updatePlayhead: (seconds) => set({ playheadPosition: seconds }),
 
-    setPlaying: (playing) => set({ isPlaying: playing }),
+    // Stopping always returns the shuttle to 1×, so the next plain
+    // "play" (Space, transport button) runs at normal speed.
+    setPlaying: (playing) =>
+      set(playing ? { isPlaying: true } : { isPlaying: false, shuttleSpeed: 1 }),
+    setShuttleSpeed: (speed) => set({ shuttleSpeed: speed }),
 
     splitClipAtPlayhead: (trackId, newClipId) =>
       set((state) => {

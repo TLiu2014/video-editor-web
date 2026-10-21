@@ -31,9 +31,16 @@ export function usePlaybackEngine(): void {
       const dt = (now - lastTime) / 1000;
       lastTime = now;
       const total = computeProjectDuration(project);
-      const next = state.playheadPosition + dt;
+      // Shuttle speed scales the clock; negative runs it backwards.
+      const next = state.playheadPosition + dt * state.shuttleSpeed;
       if (next >= total) {
         state.updatePlayhead(total);
+        state.setPlaying(false);
+        raf = null;
+        return;
+      }
+      if (next <= 0) {
+        state.updatePlayhead(0);
         state.setPlaying(false);
         raf = null;
         return;
@@ -60,7 +67,9 @@ export function usePlaybackEngine(): void {
         // tick would clamp instantly and the user would think play
         // didn't fire.
         const total = computeProjectDuration(project);
-        if (state.playheadPosition >= total) state.updatePlayhead(0);
+        if (state.playheadPosition >= total && state.shuttleSpeed > 0) {
+          state.updatePlayhead(0);
+        }
         lastTime = performance.now();
         raf = requestAnimationFrame(tick);
       },

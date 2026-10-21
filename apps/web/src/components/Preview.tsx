@@ -14,6 +14,7 @@ import {
   SHAPE_LABELS,
   shapePixelBounds,
 } from '../lib/shapes';
+import { mediaRateFactor, mediaShouldPlay } from '../lib/shuttle';
 import { stillUrl } from '../lib/stills';
 import { transitionAt } from '../lib/transitions';
 import { sampleZoom, sourceTimeAt, zoomCssTransform } from '../lib/zoomPan';
@@ -240,6 +241,7 @@ export function Preview() {
       sync,
     );
     const unsubPlaying = useTimelineStore.subscribe((s) => s.isPlaying, sync);
+    const unsubShuttle = useTimelineStore.subscribe((s) => s.shuttleSpeed, sync);
     const unsubProject = useTimelineStore.subscribe(
       (s) => s.currentProject,
       sync,
@@ -249,6 +251,7 @@ export function Preview() {
     return () => {
       unsubPlayhead();
       unsubPlaying();
+      unsubShuttle();
       unsubProject();
       if (mainSourceRef.current) URL.revokeObjectURL(mainSourceRef.current.url);
       if (auxSourceRef.current) URL.revokeObjectURL(auxSourceRef.current.url);
@@ -312,12 +315,13 @@ function updateActiveVideo(
     video.src = url;
   }
 
-  const rate = clipRate(active);
-  // Local timeline → source time: multiply by rate so a slow-mo
-  // clip pulls its source frames slower than wall-clock and a
-  // fast clip pulls them faster.
+  const rate = clipRate(active) * mediaRateFactor(state);
+  // Local timeline → source time: multiply by the clip's own rate so
+  // a slow-mo clip pulls its source frames slower than wall-clock and
+  // a fast clip pulls them faster.
   const targetTime =
-    active.trimStart + (state.playheadPosition - active.startOffset) * rate;
+    active.trimStart +
+    (state.playheadPosition - active.startOffset) * clipRate(active);
   if (Math.abs(video.currentTime - targetTime) > 0.05) {
     video.currentTime = targetTime;
   }
@@ -325,9 +329,12 @@ function updateActiveVideo(
     video.playbackRate = rate;
   }
 
-  if (state.isPlaying && video.paused) {
+  // Reverse shuttle keeps the element paused; the seek above follows
+  // the playhead backwards instead.
+  const shouldPlay = mediaShouldPlay(state);
+  if (shouldPlay && video.paused) {
     video.play().catch(() => undefined);
-  } else if (!state.isPlaying && !video.paused) {
+  } else if (!shouldPlay && !video.paused) {
     video.pause();
   }
 }
