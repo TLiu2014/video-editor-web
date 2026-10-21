@@ -1,7 +1,7 @@
 // Browser smoke test for core timeline editing. Drives a running dev
 // server with the locally installed Chrome. See e2e/README.md.
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import puppeteer from 'puppeteer-core';
@@ -125,6 +125,43 @@ ok('delete after split', (await layout())[0].clips.length === 1);
 await page.keyboard.down('Shift'); await page.keyboard.press('Slash'); await page.keyboard.up('Shift'); await wait();
 ok('? opens shortcut sheet', await page.evaluate(() => document.body.innerText.includes('Keyboard shortcuts')));
 await page.keyboard.press('Escape'); await wait();
+// PiP: select clipB on V2, put the playhead inside it, enable PiP,
+// then drag the layer in the preview and resize it from the corner.
+const clipBEl = await clipEl('clipB');
+const bb = await clipBEl.boundingBox();
+await page.mouse.click(bb.x + bb.width / 2, bb.y + 20); await wait();
+const rulerTop = (await (await page.$('[data-timeline-surface]')).boundingBox()).y + 8;
+await page.mouse.click(bb.x + bb.width / 2, rulerTop); await wait();
+await page.mouse.click(bb.x + bb.width / 2, bb.y + 20); await wait();
+await (await btn('Enable PiP')).click(); await wait(400);
+const pip = await page.$('[data-pip-layer]');
+ok('PiP layer rendered', !!pip);
+if (pip) {
+  const before = await pip.boundingBox();
+  await page.mouse.move(before.x + before.width / 2, before.y + before.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(before.x + before.width / 2 + 100, before.y + before.height / 2 + 50, { steps: 6 });
+  await page.mouse.up(); await wait();
+  const moved = await (await page.$('[data-pip-layer]')).boundingBox();
+  ok('PiP drag moves layer', Math.abs(moved.x - before.x - 100) < 3 && Math.abs(moved.y - before.y - 50) < 3,
+    `${before.x},${before.y} -> ${moved.x},${moved.y}`);
+  const handle = await page.$('[data-pip-layer] > div[title="Drag to resize"]');
+  const hb2 = await handle.boundingBox();
+  await page.mouse.move(hb2.x + 6, hb2.y + 6); await page.mouse.down();
+  await page.mouse.move(hb2.x + 66, hb2.y + 6, { steps: 6 }); await page.mouse.up(); await wait();
+  const resized = await (await page.$('[data-pip-layer]')).boundingBox();
+  ok('PiP corner resize grows layer', resized.width > moved.width + 40, `${moved.width} -> ${resized.width}`);
+}
+
+// SRT import from the captions dialog (no API key needed).
+const srtPath = join(MEDIA, 'subs.srt');
+writeFileSync(srtPath, '1\n00:00:00,500 --> 00:00:02,000\nHello there\n\n2\n00:00:02,500 --> 00:00:04,000\nSecond line\n');
+await page.keyboard.down('Meta'); await page.keyboard.press('KeyK'); await page.keyboard.up('Meta'); await wait();
+await page.keyboard.type('Auto Captions'); await wait(); await page.keyboard.press('Enter'); await wait(400);
+await (await page.$('input[type=file][accept^=".srt"]')).uploadFile(srtPath); await wait(400);
+ok('SRT import adds captions', await page.evaluate(() => document.body.innerText.includes('Added 2 captions')));
+await page.keyboard.press('Escape'); await wait();
+
 // right-click menu
 const last = (await page.$$('[data-track-id] > div[title]'))[0];
 const lb = await last.boundingBox();

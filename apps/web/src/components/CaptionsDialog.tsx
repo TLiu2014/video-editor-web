@@ -1,12 +1,14 @@
 import {
   CaptionsIcon,
   CheckCircle2Icon,
+  FileTextIcon,
   KeyRoundIcon,
   Loader2Icon,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   generateCaptionOverlays,
+  srtToCaptionOverlays,
   type CaptionProgress,
 } from '../lib/captions';
 import { estimateExtractedAudioBytes } from '../lib/filterGraph';
@@ -60,6 +62,28 @@ export function CaptionsDialog({
   const [error, setError] = useState<string | null>(null);
   const [resultCount, setResultCount] = useState(0);
   const [progress, setProgress] = useState<CaptionProgress | null>(null);
+  const srtInputRef = useRef<HTMLInputElement>(null);
+
+  // Import an existing subtitle file instead of transcribing — no
+  // API key or audio upload needed. Cue times are timeline seconds.
+  const importSrt = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    const project = useTimelineStore.getState().currentProject;
+    if (!file || !project) return;
+    try {
+      const overlays = srtToCaptionOverlays(await file.text(), project);
+      if (overlays.length === 0) {
+        setError(`No subtitle cues found in "${file.name}".`);
+        return;
+      }
+      useTimelineStore.getState().addOverlays(overlays);
+      setResultCount(overlays.length);
+      setPhase('done');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   const provider = transcriptionProviderList.find(
     (p) => p.id === selectedProviderId,
@@ -180,6 +204,22 @@ export function CaptionsDialog({
 
           {phase === 'idle' && !error ? (
             <div className="flex items-center justify-end gap-2">
+              <input
+                ref={srtInputRef}
+                type="file"
+                accept=".srt,application/x-subrip,text/plain"
+                className="hidden"
+                onChange={importSrt}
+              />
+              <Button
+                variant="ghost"
+                icon={<FileTextIcon />}
+                onClick={() => srtInputRef.current?.click()}
+                className="mr-auto"
+                title="Use an existing .srt file — no API key needed"
+              >
+                Import .srt…
+              </Button>
               <Button variant="ghost" onClick={() => onOpenChange(false)}>
                 Cancel
               </Button>

@@ -179,7 +179,56 @@ Volume changes apply in both preview (for A1 clips) and export.
 
 ---
 
-## 6. Text overlay
+## 6. Clip properties (speed, fades, color, effects)
+
+Select a clip and use the **Properties** panel on the right. With **several clips selected**, the panel shows the shared controls (fade, speed, volume, color, effects) and applies each change to all of them.
+
+### Speed
+
+**Speed** runs from **0.25×** (slow motion) to **4×** (fast). The clip gets longer or shorter on the timeline to match; trims stay on the same frames of the source. Click the reset icon to return to 1×. Audio keeps its pitch.
+
+Slowing a clip down can't make it overlap the next clip. The slowest speed you can pick is limited by the space before the next clip, so make room first if you need it slower.
+
+### Fade in / fade out
+
+Set how many seconds the clip takes to fade in from black (or silence) and out again. Video fades show in the preview, audio fades are heard, and both are in the export. Fade-in plus fade-out can't be longer than the clip. When two neighboring clips on V1 both have fades, the preview crossfades between them.
+
+### Clip color
+
+Pick a label color for the clip on the timeline, which helps you find related clips. It doesn't affect the video. Reset returns to the default color.
+
+### Effects (video clips)
+
+| Effect | Range | Default |
+|---|---|---|
+| Brightness | 0.5 – 1.5 | 1 |
+| Contrast | 0.5 – 1.5 | 1 |
+| Saturation | 0 (black and white) – 2 | 1 |
+| Blur | 0 – 20 px | 0 |
+
+Effects preview live and are burned into the export. **Reset effects** clears all four.
+
+---
+
+## 7. Picture-in-picture (V2 and above)
+
+Higher video tracks draw on top of lower ones, so a clip on **V2** covers **V1** wherever both play.
+
+1. Click **+ Video track** in the timeline header to add V2 if you don't have it yet.
+2. Drag a clip from Media (or from V1) onto V2.
+3. Select it and click **Enable PiP** in Properties. The clip shrinks to a corner (25% size, top-left).
+4. Position it:
+   - **In the preview:** drag the layer to move it. Drag the small square at its bottom-right corner to resize it.
+   - **In Properties:** use the **Position X / Y**, **Scale**, **Rotation** (−180° to 180°) and **Opacity** sliders.
+5. Click **Reset** to make the clip full-frame again.
+
+Without PiP enabled, a V2 clip fills the frame and fully covers V1. Rotation and opacity can only be set in Properties.
+
+**Limit:** audio from clips on V2 and above is muted in both the preview and the export. Put sound you need on an audio track, or keep that clip on V1.
+
+---
+
+## 8. Text overlay
 
 Add a simple text layer over your video.
 
@@ -201,7 +250,25 @@ Text overlays appear in the preview and are burned into the exported video.
 
 ---
 
-## 7. Export to MP4
+## 9. Captions
+
+**Edit → Auto Captions…** creates captions from the timeline's audio, or imports a subtitle file.
+
+### Generate with speech-to-text
+
+1. Open **Settings** (gear icon, top right), pick a provider (**OpenAI**, **Gemini** or **Deepgram**) and paste your API key. Keys are stored only in this browser.
+2. Choose **Edit → Auto Captions…** and click **Generate captions**.
+3. The audio is extracted and compressed on your machine, split into parts if it's large, and sent only to the provider you chose.
+
+### Import an .srt file
+
+In the same dialog, click **Import .srt…** and pick a subtitle file. No API key is needed. The cue times are read as timeline times, so 00:00:05 in the file shows at 0:05 on the timeline.
+
+Either way, each caption becomes a text overlay along the bottom of the frame. Its size is based on your project's height. You can edit, move or delete each one like any other text overlay.
+
+---
+
+## 10. Export to MP4
 
 When your edit is ready:
 
@@ -225,6 +292,15 @@ When your edit is ready:
 - Long projects or large source files need more browser memory. The export dialog warns if the project may be heavy.
 - Keep the export tab open until download completes.
 - For best performance on large exports, use a browser context with multi-threaded encoding enabled (cross-origin isolated page).
+
+---
+
+## 11. Projects and archives
+
+- **Autosave:** every edit is saved in this browser automatically. The status bar shows when it last saved. Undo history (50 steps) lasts only while the project is open.
+- **Switch projects:** click the project name at the top left to rename it, switch to another project or create a new one. Use **File → Open Project…** to see all saved projects.
+- **Project settings:** **File → Project Settings…** (see section 1).
+- **Archive (.zip):** **File → Save Archive (.zip)** downloads the whole project, including its media, as one file. **File → Open Archive (.zip)…** opens it in any browser, as a new copy. Use this for backups, moving to another computer, or sharing. Projects saved in the browser can be lost if you clear site data, so keep archives of anything important.
 
 ---
 
@@ -276,7 +352,11 @@ Additional commands (undo, ripple delete, etc.) are available from the command p
 | Trim, split, join, move, close gaps | Yes |
 | Media library (import, add to timeline, rename, remove unused) | Yes |
 | Mute original audio, add secondary audio, volume control | Yes (mute applies fully on export) |
+| Speed, fades, clip color, color effects | Yes |
+| Picture-in-picture (drag and resize in the preview) | Yes (V2+ audio is muted) |
 | Text overlay with default font | Yes |
+| Auto captions (speech-to-text) and .srt import | Yes |
+| Project archives (.zip with media) | Yes |
 | Export to standard MP4 | Yes |
 
 For questions or limits not covered here, check warnings in **Project Settings** and **Export** dialogs before exporting.

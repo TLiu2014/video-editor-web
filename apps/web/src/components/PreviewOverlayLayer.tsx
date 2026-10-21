@@ -1,3 +1,4 @@
+import clsx from 'clsx';
 import { useEffect, useRef, useState } from 'react';
 import { clipRate } from '../lib/clipRate';
 import { clipCssFilter } from '../lib/effects';
@@ -11,6 +12,10 @@ import type { VideoClip } from '../types/timeline';
  * clip mounts its own `<video>` element with positioning from the
  * clip's `transform`, fade via opacity, and color effects via CSS
  * filter.
+ *
+ * A layer with a PiP transform can be dragged to move it, and resized
+ * from its bottom-right handle while selected. Full-frame layers (no
+ * transform) stay click-through so they don't swallow the preview.
  *
  * Mute is locked on: V2+ audio doesn't flow into the master mix
  * yet (see filterGraph), so the preview must match.
@@ -96,6 +101,58 @@ function PreviewOverlayClip({ clipId }: { clipId: string }) {
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const urlRef = useRef<string | null>(null);
+  const selected = useTimelineStore((s) => s.selectedClipIds.includes(clipId));
+  const dragRef = useRef<{
+    mode: 'move' | 'scale';
+    pointerX: number;
+    pointerY: number;
+    origin: { x: number; y: number; scale: number };
+    frameW: number;
+    frameH: number;
+  } | null>(null);
+
+  const beginDrag = (
+    e: React.PointerEvent<HTMLDivElement>,
+    mode: 'move' | 'scale',
+  ) => {
+    const t = clip?.transform;
+    const frame = (e.currentTarget.closest('[data-pip-layer]') as HTMLElement | null)
+      ?.parentElement;
+    if (!clip || !t || !frame || e.button !== 0) return;
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const rect = frame.getBoundingClientRect();
+    dragRef.current = {
+      mode,
+      pointerX: e.clientX,
+      pointerY: e.clientY,
+      origin: { x: t.x, y: t.y, scale: t.scale },
+      frameW: rect.width,
+      frameH: rect.height,
+    };
+    useTimelineStore.getState().selectClip(clip.id);
+  };
+  const onDragMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = dragRef.current;
+    if (!d || !clip) return;
+    const dx = (e.clientX - d.pointerX) / d.frameW;
+    const dy = (e.clientY - d.pointerY) / d.frameH;
+    // The store clamps x / y / scale into the frame.
+    useTimelineStore
+      .getState()
+      .setClipTransform(
+        clip.id,
+        d.mode === 'move'
+          ? { x: d.origin.x + dx, y: d.origin.y + dy }
+          : { scale: d.origin.scale + dx },
+      );
+  };
+  const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current) return;
+    e.stopPropagation();
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    dragRef.current = null;
+  };
 
   // Mount object URL when the source file changes.
   useEffect(() => {
@@ -178,18 +235,52 @@ function PreviewOverlayClip({ clipId }: { clipId: string }) {
       ? { transform: `rotate(${rotation}deg)`, transformOrigin: 'center' }
       : {};
 
+  const filter = clipCssFilter(clip);
+  if (!transform) {
+    return (
+      <video
+        ref={videoRef}
+        muted
+        playsInline
+        preload="auto"
+        className="pointer-events-none absolute"
+        style={{ ...positionStyle, filter }}
+      />
+    );
+  }
+
   return (
-    <video
-      ref={videoRef}
-      muted
-      playsInline
-      preload="auto"
-      className="pointer-events-none absolute"
-      style={{
-        ...positionStyle,
-        ...rotateStyle,
-        filter: clipCssFilter(clip),
-      }}
-    />
+    <div
+      data-pip-layer
+      onPointerDown={(e) => beginDrag(e, 'move')}
+      onPointerMove={onDragMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      className={clsx(
+        'pointer-events-auto absolute cursor-move',
+        selected && 'outline outline-2 outline-offset-0 outline-accent',
+      )}
+      style={{ ...positionStyle, ...rotateStyle }}
+      title="Drag to move · corner handle to resize"
+    >
+      <video
+        ref={videoRef}
+        muted
+        playsInline
+        preload="auto"
+        className="block h-auto w-full"
+        style={{ filter }}
+      />
+      {selected ? (
+        <div
+          onPointerDown={(e) => beginDrag(e, 'scale')}
+          onPointerMove={onDragMove}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+          className="absolute -bottom-1.5 -right-1.5 size-3 cursor-nwse-resize rounded-sm border border-white bg-accent"
+          title="Drag to resize"
+        />
+      ) : null}
+    </div>
   );
 }

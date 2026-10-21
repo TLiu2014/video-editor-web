@@ -202,7 +202,9 @@ The export dialog estimates memory use (`projectMetrics.exportMemoryRisk`) befor
 Volume 0–150% (audio clips; the store accepts up to 200%), fade in and out, speed 0.25–4×, label color, video effects (brightness, contrast, saturation, blur), PiP transform on V2 and above (x, y, scale, rotation, opacity), and a "has audio" override.
 
 ### Text, captions, export
-Text overlays (text, position, size, color, duration; drag in the preview), Auto Captions and SRT import, and MP4 export.
+Text overlays (text, position, size, color, duration; drag in the preview), Auto Captions and `.srt` import (both in the Captions dialog), and MP4 export.
+
+PiP layers on V2+ with a transform can be dragged to move them in the preview, and resized from a corner handle while selected (`PreviewOverlayLayer`). Full-frame layers stay click-through.
 
 ---
 
@@ -243,7 +245,7 @@ Which established editor each behavior follows. "Own" means a choice made for th
 | Track mute (M) and solo (S) | Premiere / DAW mixers | |
 | Speed 0.25–4× | Camtasia *Clip Speed*; Premiere *Speed/Duration* | |
 | Fade in/out per clip | Camtasia audio/visual fades; Premiere default transitions | |
-| PiP transform on V2+ | Camtasia canvas transform; Premiere *Motion* | Transforms are set numerically or by dragging in the preview; no keyframes yet. |
+| PiP transform on V2+ | Camtasia canvas transform; Premiere *Motion* | Drag to move and corner-resize in the preview (rotation and opacity are in Properties only); no keyframes yet. |
 | Brightness/contrast/saturation/blur | Camtasia *Visual Effects*; Premiere *Lumetri* (much simpler here) | |
 | Auto Captions | Camtasia *Dynamic Captions*; Premiere *Speech to Text* | Bring your own provider key. |
 | Command palette (⌘K) | VS Code / Linear-style palettes | Not from a video editor. |
@@ -259,6 +261,8 @@ Which established editor each behavior follows. "Own" means a choice made for th
 - No JKL shuttle, no track lock, no track height control, no slip or slide tools.
 - Text overlays: no font family, weight, background or alignment; they aren't on a track.
 - Mute of a video clip's own audio isn't reflected in the preview.
+- Audio from clips on V2 and above is always muted (preview and export).
+- PiP has no on-canvas rotate handle and no snapping or guides.
 - The library doesn't detect duplicate imports or show file size, and has no folders (bins).
 - No deployment setup for either app.
 
@@ -266,6 +270,6 @@ Which established editor each behavior follows. "Own" means a choice made for th
 
 ## 6. Testing
 
-- Browser smoke test: `apps/web/e2e/smoke.mjs` (`pnpm e2e` against a running dev server). It drives headless Chrome through import, resizing, reorder, cross-track drag, the range shortcuts, undo, split/join/delete and the context menu.
+- Browser smoke test: `apps/web/e2e/smoke.mjs` (`pnpm e2e` against a running dev server). It drives headless Chrome through import, resizing, reorder, cross-track drag, the range shortcuts, undo, split/join/delete, PiP drag and resize, `.srt` import and the context menu.
 - Vitest (`apps/web`, `pnpm test`) covers the pure editing rules (`lib/timelineOps.test.ts`), the load path and legacy migration (`serialization/project.test.ts`), and store actions (`store/useTimelineStore.test.ts`).
 - Export output is still verified by hand.
