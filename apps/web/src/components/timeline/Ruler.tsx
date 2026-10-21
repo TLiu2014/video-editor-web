@@ -97,6 +97,9 @@ export function Ruler({ duration }: { duration: number }) {
       className="relative cursor-ew-resize border-b border-border bg-panel"
       style={{ height: RULER_HEIGHT, width: duration * pps }}
       onPointerDown={onPointerDown}
+      // Scrubbing must not clear the selection (the timeline's scroll
+      // container deselects on click) — select a clip, then scrub to edit it.
+      onClick={(e) => e.stopPropagation()}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}

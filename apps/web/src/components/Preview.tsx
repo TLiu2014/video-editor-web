@@ -16,6 +16,7 @@ import {
 } from '../lib/shapes';
 import { stillUrl } from '../lib/stills';
 import { transitionAt } from '../lib/transitions';
+import { sampleZoom, sourceTimeAt, zoomCssTransform } from '../lib/zoomPan';
 import { useTimelineStore } from '../store/useTimelineStore';
 import { useTimelineViewStore } from '../store/useTimelineViewStore';
 import { PreviewOverlayLayer } from './PreviewOverlayLayer';
@@ -213,6 +214,24 @@ export function Preview() {
         // and forces a re-decode the next time we cross a cut.
         aux.style.opacity = '0';
         auxImg.style.opacity = '0';
+      }
+
+      // Zoom & pan (V1 clips): applied inside any transition transform
+      // so a sliding clip keeps its zoom.
+      const base = project.tracks.find((t) => t.type === 'video');
+      const zoomOf = (clip: VideoClip, sourceTime: number) =>
+        base?.clips.some((c) => c.id === clip.id)
+          ? zoomCssTransform(sampleZoom(clip, sourceTime))
+          : '';
+      const appendTransform = (el: HTMLElement, extra: string) => {
+        if (extra) el.style.transform = `${el.style.transform} ${extra}`.trim();
+      };
+      appendTransform(front, zoomOf(active, sourceTimeAt(active, state.playheadPosition)));
+      if (t && partner) {
+        appendTransform(
+          partner.clip.still ? auxImg : aux,
+          zoomOf(partner.clip, partner.freezeTime),
+        );
       }
     };
 

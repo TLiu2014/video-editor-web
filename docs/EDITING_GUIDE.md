@@ -249,6 +249,23 @@ Transitions are for V1 only. If you move a clip away from its neighbor, its tran
 
 ---
 
+### Zoom & pan (keyframes)
+
+Animate a zoom into part of the frame, like Camtasia's Zoom-n-Pan. It's useful for screen recordings, and on images it gives a Ken Burns effect. It works on clips on **V1**.
+
+1. Select the clip and move the playhead to where the zoom should start.
+2. In **Properties → Zoom & pan**, set **Zoom** (1× to 5×) and **Center X / Y**, the point the view is centered on. This creates a keyframe at the playhead.
+3. Move the playhead and set new values to add another keyframe. Between keyframes the view eases smoothly. Before the first and after the last, it holds.
+
+- With the playhead on a keyframe, the sliders edit that keyframe, and **Delete keyframe** removes it. Elsewhere, **Add keyframe** captures the current view.
+- **◀ / ▶** jump to the previous or next keyframe. Keyframes also show as small diamonds along the bottom of the clip on the timeline; click one to jump to it.
+- A single keyframe holds that zoom for the whole clip.
+- **Remove zoom & pan** clears them all.
+- The view always stays inside the frame. Panning stops at the edges, so you never see black borders.
+- Keyframes stay attached to the footage. Moving, trimming or splitting the clip, or changing its speed, keeps the animation on the same frames.
+
+---
+
 ## 8. Picture-in-picture (V2 and above)
 
 Higher video tracks draw on top of lower ones, so a clip on **V2** covers **V1** wherever both play.

@@ -1,6 +1,10 @@
 import {
   LayersIcon,
   Music2Icon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  DiamondMinusIcon,
+  DiamondPlusIcon,
   RotateCcwIcon,
   ShapesIcon,
   Trash2Icon,
@@ -11,6 +15,20 @@ import {
 } from 'lucide-react';
 import { useMemo } from 'react';
 import { formatTime } from '../lib/formatTime';
+import {
+  KEYFRAME_EPSILON,
+  keyframeAt,
+  keyframesOf,
+  MAX_ZOOM,
+  MIN_ZOOM,
+  removeKeyframe,
+  sampleZoom,
+  sourceTimeAt,
+  timelineTimeOf,
+  upsertKeyframe,
+  visibleKeyframes,
+  type ZoomView,
+} from '../lib/zoomPan';
 import {
   effectiveOverlayFades,
   isTextOverlay,
@@ -35,6 +53,7 @@ import type {
   ShapeStyle,
   TextOverlay,
   VideoClip,
+  ZoomKeyframe,
 } from '../types/timeline';
 import { Button } from './ui/Button';
 import { Slider } from './ui/Slider';
@@ -304,6 +323,7 @@ function ClipProperties({ clip }: { clip: AnyClip }) {
           </>
         )}
         {clip.kind === 'video' ? <TransitionControl clip={clip} /> : null}
+        {clip.kind === 'video' ? <ZoomPanControl clip={clip} /> : null}
         <FadeControls clip={clip} />
         {clip.kind === 'video' && clip.still ? null : (
           <SpeedControl clip={clip} />
@@ -557,6 +577,144 @@ function TransitionControl({ clip }: { clip: VideoClip }) {
           </p>
         </>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * Keyframed zoom & pan for a V1 clip. The sliders show the view at the
+ * playhead; changing one edits the keyframe there or adds one (so with
+ * a single keyframe the whole clip holds that zoom).
+ */
+function ZoomPanControl({ clip }: { clip: VideoClip }) {
+  const project = useTimelineStore((s) => s.currentProject);
+  const playhead = useTimelineStore((s) => s.playheadPosition);
+  const setZoomKeyframes = useTimelineStore((s) => s.setZoomKeyframes);
+  const onBase = useMemo(
+    () => (project ? baseTrackClips(project).some((c) => c.id === clip.id) : false),
+    [project, clip.id],
+  );
+  if (!onBase) return null;
+
+  const inside =
+    playhead >= clip.startOffset && playhead < clip.startOffset + clip.duration;
+  const t = sourceTimeAt(clip, playhead);
+  const view = sampleZoom(clip, t);
+  const here = inside ? keyframeAt(clip, t) : null;
+  const keys = visibleKeyframes(clip);
+  const all = keyframesOf(clip);
+  const setView = (patch: Partial<ZoomView>) =>
+    setZoomKeyframes(clip.id, upsertKeyframe(all, t, { ...view, ...patch }));
+  const jumpTo = (k: ZoomKeyframe | undefined) => {
+    if (!k) return;
+    useTimelineStore.getState().updatePlayhead(timelineTimeOf(clip, k.t));
+  };
+  const prev = [...keys].reverse().find((k) => k.t < t - KEYFRAME_EPSILON);
+  const next = keys.find((k) => k.t > t + KEYFRAME_EPSILON);
+  const iconBtn =
+    'flex size-7 items-center justify-center rounded border border-border text-text-secondary transition hover:bg-chrome disabled:opacity-40 disabled:hover:bg-transparent';
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <label className="text-[11px] uppercase tracking-wide text-text-muted">
+          Zoom &amp; pan
+        </label>
+        <span className="font-mono text-[10px] text-text-muted">
+          {keys.length === 0
+            ? 'off'
+            : `${keys.length} keyframe${keys.length === 1 ? '' : 's'}`}
+        </span>
+      </div>
+      {!inside ? (
+        <p className="text-[11px] leading-relaxed text-text-muted">
+          Move the playhead over this clip to set its zoom.
+        </p>
+      ) : (
+        <>
+          <SliderRow
+            label="Zoom"
+            value={view.zoom}
+            min={MIN_ZOOM}
+            max={MAX_ZOOM}
+            step={0.01}
+            format={(v) => `${v.toFixed(2)}×`}
+            onChange={(v) => setView({ zoom: v })}
+          />
+          <SliderRow
+            label="Center X"
+            value={view.cx}
+            min={0}
+            max={1}
+            step={0.005}
+            format={(v) => `${Math.round(v * 100)}%`}
+            onChange={(v) => setView({ cx: v })}
+          />
+          <SliderRow
+            label="Center Y"
+            value={view.cy}
+            min={0}
+            max={1}
+            step={0.005}
+            format={(v) => `${Math.round(v * 100)}%`}
+            onChange={(v) => setView({ cy: v })}
+          />
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              className={iconBtn}
+              disabled={!prev}
+              onClick={() => jumpTo(prev)}
+              title="Previous keyframe"
+              aria-label="Previous keyframe"
+            >
+              <ChevronLeftIcon className="size-4" />
+            </button>
+            {here ? (
+              <button
+                type="button"
+                onClick={() => setZoomKeyframes(clip.id, removeKeyframe(all, here.t))}
+                className="flex h-7 flex-1 items-center justify-center gap-1.5 rounded border border-border text-[11px] text-text-secondary transition hover:bg-chrome hover:text-danger"
+              >
+                <DiamondMinusIcon className="size-3.5" />
+                Delete keyframe
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setView({})}
+                className="flex h-7 flex-1 items-center justify-center gap-1.5 rounded border border-border text-[11px] text-text-secondary transition hover:bg-chrome hover:text-text-primary"
+              >
+                <DiamondPlusIcon className="size-3.5" />
+                Add keyframe
+              </button>
+            )}
+            <button
+              type="button"
+              className={iconBtn}
+              disabled={!next}
+              onClick={() => jumpTo(next)}
+              title="Next keyframe"
+              aria-label="Next keyframe"
+            >
+              <ChevronRightIcon className="size-4" />
+            </button>
+          </div>
+          {all.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => setZoomKeyframes(clip.id, null)}
+              className="self-start text-[11px] text-text-muted transition hover:text-danger"
+            >
+              Remove zoom &amp; pan
+            </button>
+          ) : null}
+          <p className="text-[11px] leading-relaxed text-text-muted">
+            Sliders edit the keyframe at the playhead, or add one there.
+            Between keyframes the view eases smoothly.
+          </p>
+        </>
+      )}
     </div>
   );
 }

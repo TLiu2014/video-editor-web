@@ -89,6 +89,9 @@ describe.skipIf(!run)('export plans through native ffmpeg', () => {
       '-t', '3', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', 'blue.mp4']);
     ff(['-f', 'lavfi', '-i', 'color=c=red:s=320x180:r=30', '-t', '3',
       '-c:v', 'libx264', '-pix_fmt', 'yuv420p', 'red.mp4']);
+    // Left half red, right half blue — for zoom & pan.
+    ff(['-f', 'lavfi', '-i', 'color=c=red:s=160x180:r=30', '-f', 'lavfi', '-i', 'color=c=blue:s=160x180:r=30',
+      '-filter_complex', '[0][1]hstack', '-t', '3', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', 'split.mp4']);
     // Opaque green card, and a transparent PNG with a white square.
     ff(['-f', 'lavfi', '-i', 'color=c=green:s=640x360', '-frames:v', '1', 'card.png']);
     ff(['-f', 'lavfi', '-i', 'color=c=white@0.0:s=100x100,format=rgba,drawbox=x=25:y=25:w=50:h=50:c=white@1:t=fill:replace=1',
@@ -246,5 +249,32 @@ describe.skipIf(!run)('export plans through native ffmpeg', () => {
     const at = (t: number) => pixel('overlay-cut.mp4', t, 160, 90);
     expect(Math.min(...at(0.6))).toBeGreaterThan(220);
     expect(at(2.2)[0]).toBeLessThan(40);
+  });
+
+  it('zooms & pans with keyframes (eased, held after the last one)', () => {
+    const split = fileFrom('split.mp4', 'video/mp4');
+    const p = project([
+      videoClip('a', split, 0, 3, {
+        hasAudio: false,
+        zoomKeyframes: [
+          { t: 0.5, zoom: 1, cx: 0.5, cy: 0.5 },
+          { t: 1.5, zoom: 2, cx: 0.25, cy: 0.5 }, // left half fills the frame
+        ],
+      }),
+    ]);
+    expect(Math.abs(execPlan(p, 'zoom.mp4') - 3)).toBeLessThan(0.1);
+    // Before the first keyframe: unzoomed, right edge is blue.
+    expect(pixel('zoom.mp4', 0.2, 300, 90)[2]).toBeGreaterThan(200);
+    // After the last keyframe: only the red half is visible.
+    const after = pixel('zoom.mp4', 2.5, 300, 90);
+    expect(after[0]).toBeGreaterThan(200);
+    expect(after[2]).toBeLessThan(60);
+    // The red/blue edge sweeps right as it zooms in; mid-way (t=1, eased
+    // to 0.5) it sits between the unzoomed (160) and final (off-frame) spots.
+    const row = [...execFileSync('ffmpeg', ['-loglevel', 'error', '-ss', '1', '-i', 'zoom.mp4', '-frames:v', '1',
+      '-vf', 'crop=320:2:0:90', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { cwd: dir })];
+    const edge = Array.from({ length: 320 }, (_, x) => row[x * 3]!).findIndex((r) => r < 128);
+    expect(edge).toBeGreaterThan(190);
+    expect(edge).toBeLessThan(300);
   });
 });

@@ -41,6 +41,7 @@ import type {
   TransitionKind,
   VideoClip,
   VideoClipEffects,
+  ZoomKeyframe,
   VideoProject,
 } from '../types/timeline';
 
@@ -287,6 +288,9 @@ export interface TimelineActions {
     clipId: ClipId,
     transition: { kind: TransitionKind; duration: number } | null,
   ) => void;
+
+  /** Replace (or clear with null) a video clip's zoom & pan keyframes. */
+  setZoomKeyframes: (clipId: ClipId, keyframes: ZoomKeyframe[] | null) => void;
 
   /** Set the volume of an audio clip. Values are clamped to [0, 2]. */
   setClipVolume: (clipId: ClipId, volume: number) => void;
@@ -1270,6 +1274,27 @@ export const useTimelineStore = create<TimelineStore>()(
             tracks: project.tracks.map((t) => ({
               ...t,
               clips: t.clips.map((c) => (c.id === clipId ? next : c)),
+            })),
+          },
+        };
+      }),
+
+    setZoomKeyframes: (clipId, keyframes) =>
+      set((state) => {
+        if (!state.currentProject) return state;
+        return {
+          currentProject: {
+            ...state.currentProject,
+            tracks: state.currentProject.tracks.map((track) => ({
+              ...track,
+              clips: track.clips.map((clip) => {
+                if (clip.id !== clipId || clip.kind !== 'video') return clip;
+                if (!keyframes || keyframes.length === 0) {
+                  const { zoomKeyframes: _drop, ...rest } = clip;
+                  return rest;
+                }
+                return { ...clip, zoomKeyframes: keyframes };
+              }),
             })),
           },
         };

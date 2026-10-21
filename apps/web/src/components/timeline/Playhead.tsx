@@ -113,6 +113,7 @@ export function Playhead({ totalHeight }: { totalHeight: number }) {
           parent's none. cursor-ew-resize signals draggability. */}
       <div
         onPointerDown={onPointerDown}
+        onClick={(e) => e.stopPropagation()}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}

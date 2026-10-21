@@ -267,6 +267,33 @@ if (tip) {
 }
 await page.keyboard.press('Escape'); await wait();
 
+// Zoom & pan: on clipA (V1, 0–6s) key zoom 5× at 1s and 1× at 4s.
+{
+  await page.$eval('[data-timeline-surface]', (el) => { el.parentElement.scrollLeft = 0; }); await wait(200);
+  const sf = await (await page.$('[data-timeline-surface]')).boundingBox();
+  const seek = async (sec) => { await page.mouse.click(sf.x + sec * 80, sf.y + 8); await wait(250); };
+  const clipAEl = await clipEl('clipA');
+  const ab = await clipAEl.boundingBox();
+  await page.mouse.click(ab.x + ab.width / 2, ab.y + 30); await wait(250);
+  const zoomSlider = async () =>
+    (await page.$$('xpath/.//label[normalize-space()="Zoom"]/ancestor::div[2]//*[@role="slider"]'))[0];
+  await seek(1);
+  ok('scrubbing the ruler keeps the clip selected', !!(await zoomSlider()));
+  await (await zoomSlider()).focus(); await page.keyboard.press('End'); await wait(250);
+  await seek(4);
+  await (await zoomSlider()).focus(); await page.keyboard.press('Home'); await wait(250);
+  ok('two zoom keyframe diamonds on the clip', (await page.$$('[data-zoom-keyframe]')).length === 2);
+  const mainTransform = () => page.$eval('video.relative', (v) => v.style.transform);
+  await seek(0.5);
+  const held = await mainTransform();
+  await seek(2.5);
+  const mid = await mainTransform();
+  const scaleOf = (tr) => parseFloat(/scale\(([\d.]+)\)/.exec(tr)?.[1] ?? '1');
+  ok('preview zooms: held 5× before the first key, eased between', scaleOf(held) === 5 && scaleOf(mid) > 1.5 && scaleOf(mid) < 4.5,
+    `${held} | ${mid}`);
+  await page.keyboard.press('Escape'); await wait();
+}
+
 // Export through ffmpeg.wasm and wait for the download button.
 await page.keyboard.down('Meta'); await page.keyboard.press('KeyE'); await page.keyboard.up('Meta'); await wait(500);
 await page.waitForFunction(() => [...document.querySelectorAll('button')].some((b) => b.textContent?.includes('Start export') && !b.disabled), { timeout: 60000 });
@@ -274,7 +301,7 @@ await (await btn('Start export')).click();
 const exported = await page
   .waitForFunction(() => document.body.innerText.includes('Download'), { timeout: 180000 })
   .then(() => true, () => false);
-ok('ffmpeg.wasm export with still + transition succeeds', exported);
+ok('ffmpeg.wasm export with still + transition + zoom & pan succeeds', exported);
 if (!exported) console.log(consoleTail.slice(-40).join('\n'));
 if (exported) {
   // Pull the MP4 out of the page and check it: A(6s) + B(4s) + still(5s)

@@ -1,6 +1,7 @@
 import { computeTimelineDuration } from './clipRate';
 import { newId } from './ids';
 import { STILL_MAX_DURATION } from './stills';
+import { mergeKeyframes } from './zoomPan';
 import type {
   AnyClip,
   AudioClip,
@@ -11,6 +12,7 @@ import type {
   TrackId,
   VideoClip,
   VideoProject,
+  ZoomKeyframe,
 } from '../types/timeline';
 
 /**
@@ -382,6 +384,14 @@ export function joinClips(
     duration: computeTimelineDuration(head.trimStart, tail.trimEnd, head.playbackRate),
     fadeOut: tail.fadeOut,
   } as AnyClip;
+  // Zoom keyframes are in source time, so the pieces' sets simply merge.
+  if (joined.kind === 'video') {
+    const keys = check.ordered.reduce<ZoomKeyframe[]>(
+      (acc, c) => (c.kind === 'video' ? mergeKeyframes(acc, c.zoomKeyframes ?? []) : acc),
+      [],
+    );
+    if (keys.length > 0) joined.zoomKeyframes = keys;
+  }
   const drop = new Set(check.ordered.slice(1).map((c) => c.id));
   return {
     project: {

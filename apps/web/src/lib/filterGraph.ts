@@ -1,5 +1,6 @@
 import { clipRate, ffmpegAtempoChain } from './clipRate';
 import { ffmpegEffectFilters } from './effects';
+import { zoomPanFilter } from './zoomPan';
 import {
   effectiveOverlayFades,
   isTextOverlay,
@@ -249,6 +250,8 @@ function buildVideoSegments(
         `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,` +
         `fps=${fps},format=yuv420p` +
         tpad +
+        // Zoom & pan sees the segment from its first (pre-roll) frame.
+        zoomPanFilter(clip, clip.trimStart - pre * rate, width, height, fps) +
         (clip.effects ? ffmpegEffectFilters(clip.effects) : '') +
         // Fades are relative to the clip's own edges, after any pre-roll.
         videoFadeSuffix(clip, false, pre) +

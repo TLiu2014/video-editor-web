@@ -143,6 +143,17 @@ export interface VideoClipTransform {
   opacity?: number;
 }
 
+/** One zoom & pan keyframe — see lib/zoomPan.ts. */
+export interface ZoomKeyframe {
+  /** SOURCE time in seconds (stays attached to the footage). */
+  t: number;
+  /** 1 = full frame, up to 5. */
+  zoom: number;
+  /** View center, 0–1 fractions of the frame. */
+  cx: number;
+  cy: number;
+}
+
 export interface VideoClip extends BaseClip {
   kind: 'video';
   /**
@@ -157,6 +168,8 @@ export interface VideoClip extends BaseClip {
    * left edge, or on tracks other than V1.
    */
   transitionIn?: { kind: TransitionKind; duration: number };
+  /** Zoom & pan animation (V1 only). Absent / empty = full frame. */
+  zoomKeyframes?: ZoomKeyframe[];
   /**
    * Best-effort probe at import time. When false, the export pipeline
    * substitutes silence for this clip's audio span instead of

@@ -201,6 +201,7 @@ The export dialog estimates memory use (`projectMetrics.exportMemoryRisk`) befor
 | Group / ungroup | Grouped clips move together | store |
 | Selection | Click, Shift+click, ⌘A, select a track, select before or after the playhead | store, palette |
 | Snapping | To clip edges, overlay edges, the playhead and ruler ticks | `snapping` |
+| **Zoom & pan (keyframes)** | V1 clips: keyframes of zoom (1–5×) and view center, eased with smoothstep and held outside the first and last. Stored in **source time**, so moving, trimming, splitting or re-timing needs no keyframe bookkeeping, and joining merges the sets. The preview applies a CSS `scale() translate()`; the export compiles the same curve into a `zoompan` expression on `in_time`. Edited in Properties with auto-keying; diamonds on the clip. | `lib/zoomPan.ts`, `ZoomPanControl`, `ZoomKeyframeMarkers` |
 | **Transitions** | On V1, between touching clips: dissolve, fade through black, wipe left/right, slide left/right; 0.1–3 s, centered on the cut. Stored on the incoming clip (`transitionIn`), inactive while the clips don't touch, and kept on the left half when a clip is split. | `lib/transitions.ts`, `TransitionMarkers`, `TransitionControl` |
 | Context menu | Right-click a clip: split, trim to playhead, join, copy, group, close gaps, show in Media, delete, ripple delete | `ClipContextMenu` |
 | Zoom | = / − / 0 | `useTimelineViewStore` |
@@ -267,6 +268,7 @@ Which established editor each behavior follows. "Own" means a choice made for th
 | Track mute (M) and solo (S) | Premiere / DAW mixers | |
 | Speed 0.25–4× | Camtasia *Clip Speed*; Premiere *Speed/Duration* | |
 | Fade in/out per clip | Camtasia audio/visual fades | |
+| Zoom & pan keyframes | Camtasia *Zoom-n-Pan* / animations; Premiere *Scale & Position* keyframes | Only zoom and center, on V1, with ease in/out; no per-keyframe easing curves. Edited through sliders with auto-keying, not on-canvas. |
 | Transitions centered on the cut, using handle media | Camtasia and Premiere transitions ("center at cut" alignment in Premiere) | Applied from a "+" on the cut, ⌘D or Properties, rather than Camtasia's drag from a Transitions tab. V1 only. |
 | ⌘D = add default transition | Premiere *Apply Default Video Transition* | Camtasia has no default binding. |
 | Still images on video tracks | Camtasia and Premiere (image duration default) | Camtasia and Premiere default stills to about 5 s as well. |
@@ -285,7 +287,7 @@ Which established editor each behavior follows. "Own" means a choice made for th
 ## 5. Known gaps
 
 - Transitions only on V1, and only the six types above; the preview shows the other clip as a still frame rather than playing it.
-- No keyframes or animation.
+- Keyframes only for zoom & pan on V1. There's no keyframed animation for PiP position, opacity, annotations or text, and no per-keyframe easing choice. `zoompan` positions in whole pixels, so very slow pans can show slight stepping.
 - Annotations and text fade, but have no other animation (no motion or scale-in), and there are no blur, spotlight or sketch-motion shapes. There are no cursor or zoom-and-pan effects. Animated GIFs import as their first frame.
 - Export is single-threaded (see section 1).
 - No JKL shuttle, no track lock, no track height control, no slip or slide tools.
@@ -302,4 +304,4 @@ Which established editor each behavior follows. "Own" means a choice made for th
 - `lib/shapes.test.ts` covers shape bounds (including arrows pointing up and left), default scaling, labels, and overlay-lane row packing.
 - Browser smoke test: `apps/web/e2e/smoke.mjs` (`pnpm e2e` against a running dev server). It drives headless Chrome through import, resizing, reorder, cross-track drag, the range shortcuts, undo, split/join/delete, PiP drag and resize, `.srt` import and the context menu.
 - Vitest (`apps/web`, `pnpm test`) covers the pure editing rules (`lib/timelineOps.test.ts`), the load path and legacy migration (`serialization/project.test.ts`), and store actions (`store/useTimelineStore.test.ts`).
-- `lib/filterGraph.ffmpeg.test.ts` runs real export plans through native ffmpeg (`RUN_FFMPEG=1 pnpm test`). It checks still images, transparent PNG overlays, V2 alpha fades, overlay fade timing and hard cuts, dissolve length and blending, held edge frames, wipe direction, and fades going through black. The smoke test also exports through ffmpeg.wasm in the browser and checks the MP4 with ffprobe.
+- `lib/filterGraph.ffmpeg.test.ts` runs real export plans through native ffmpeg (`RUN_FFMPEG=1 pnpm test`). It checks still images, zoom & pan keyframes (eased curve, hold), transparent PNG overlays, V2 alpha fades, overlay fade timing and hard cuts, dissolve length and blending, held edge frames, wipe direction, and fades going through black. The smoke test also exports through ffmpeg.wasm in the browser and checks the MP4 with ffprobe.

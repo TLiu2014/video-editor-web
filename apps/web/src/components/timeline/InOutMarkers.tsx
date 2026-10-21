@@ -147,6 +147,7 @@ function RangeMarker({
     >
       <div
         onPointerDown={onPointerDown}
+        onClick={(e) => e.stopPropagation()}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}

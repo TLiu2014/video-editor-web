@@ -25,7 +25,8 @@ import {
   useTimelineViewStore,
   usePixelsPerSecond,
 } from '../../store/useTimelineViewStore';
-import type { AnyClip } from '../../types/timeline';
+import { timelineTimeOf, visibleKeyframes } from '../../lib/zoomPan';
+import type { AnyClip, VideoClip } from '../../types/timeline';
 import { SNAP_THRESHOLD_PX } from './constants';
 import { VideoThumbnailStrip } from './VideoThumbnailStrip';
 import { Waveform } from './Waveform';
@@ -79,6 +80,10 @@ export function Clip({ clip }: { clip: AnyClip }) {
   const reorderClip = useTimelineStore((s) => s.reorderClip);
   const selected = useTimelineStore((s) =>
     s.selectedClipIds.includes(clip.id),
+  );
+  // Zoom & pan only renders on V1, so only show its keyframes there.
+  const onBaseTrack = useTimelineStore(
+    (s) => s.currentProject?.tracks.find((t) => t.type === 'video')?.id === clip.trackId,
   );
   // Offset applied while ANOTHER clip leads a multi-clip move drag.
   const followPx = useTimelineViewStore((s) =>
@@ -350,6 +355,9 @@ export function Clip({ clip }: { clip: AnyClip }) {
         </div>
       </div>
 
+      {clip.kind === 'video' && onBaseTrack && mode === null ? (
+        <ZoomKeyframeMarkers clip={clip} pps={pps} />
+      ) : null}
       <TrimHandle
         side="left"
         active={mode === 'trim-left'}
@@ -365,6 +373,34 @@ export function Clip({ clip }: { clip: AnyClip }) {
         onPointerUp={commit}
       />
     </div>
+  );
+}
+
+/** Zoom & pan keyframe diamonds along the clip's bottom edge; click to seek. */
+function ZoomKeyframeMarkers({ clip, pps }: { clip: VideoClip; pps: number }) {
+  const keys = visibleKeyframes(clip);
+  if (keys.length === 0) return null;
+  return (
+    <>
+      {keys.map((k) => (
+        <button
+          key={k.t}
+          type="button"
+          data-zoom-keyframe
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            const s = useTimelineStore.getState();
+            s.selectClip(clip.id);
+            s.updatePlayhead(timelineTimeOf(clip, k.t));
+          }}
+          className="absolute bottom-1 z-10 size-2.5 -translate-x-1/2 rotate-45 border border-white bg-amber-400 shadow hover:scale-125"
+          style={{ left: (timelineTimeOf(clip, k.t) - clip.startOffset) * pps }}
+          title={`Zoom ${k.zoom.toFixed(2)}× — click to go to this keyframe`}
+          aria-label="Zoom keyframe"
+        />
+      ))}
+    </>
   );
 }
 

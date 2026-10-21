@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { MediaAsset, VideoClip } from '../types/timeline';
+import { sampleZoom } from '../lib/zoomPan';
 import { useTimelineStore } from './useTimelineStore';
 
 const file = new File(['x'], 'a.mp4', { type: 'video/mp4' });
@@ -147,5 +148,25 @@ describe('still images', () => {
     expect(clip).toMatchObject({ still: true, duration: 5, hasAudio: false });
     useTimelineStore.getState().trimClipRight(clip.id, 60);
     expect((clipsById()[clip.id] as VideoClip).duration).toBe(60);
+  });
+});
+
+describe('zoom keyframes through edits', () => {
+  it('split keeps the animation continuous on both halves', () => {
+    const s = useTimelineStore.getState();
+    const id = s.insertMediaClip('m1', { startOffset: 0 }); // [0,10), source [0,10)
+    if (!id) throw new Error('insert failed');
+    s.setZoomKeyframes(id, [
+      { t: 2, zoom: 1, cx: 0.5, cy: 0.5 },
+      { t: 8, zoom: 3, cx: 0.6, cy: 0.5 },
+    ]);
+    s.updatePlayhead(5);
+    useTimelineStore.getState().splitClipsAtPlayhead();
+    const [left, right] = v1().clips as VideoClip[];
+    // Same curve evaluated at the cut from either side.
+    expect(sampleZoom(left!, 5).zoom).toBeCloseTo(sampleZoom(right!, 5).zoom);
+    expect(sampleZoom(right!, 5).zoom).toBeCloseTo(2);
+    useTimelineStore.getState().setZoomKeyframes(id, null);
+    expect((clipsById()[id] as VideoClip).zoomKeyframes).toBeUndefined();
   });
 });
