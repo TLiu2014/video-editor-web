@@ -15,6 +15,7 @@ import {
   shapePixelBounds,
 } from '../lib/shapes';
 import { mediaRateFactor, mediaShouldPlay } from '../lib/shuttle';
+import { overlayAt } from '../lib/overlayMotion';
 import { stillUrl } from '../lib/stills';
 import { drawTextOverlay, layoutText } from '../lib/textRender';
 import { transitionAt } from '../lib/transitions';
@@ -511,7 +512,8 @@ function PreviewOverlays() {
 
   if (!project) return null;
 
-  const active = activeOverlays(project, playhead);
+  // Each overlay as it looks right now (motion paths sampled).
+  const active = activeOverlays(project, playhead).map((o) => overlayAt(o, playhead));
 
   return (
     <div ref={containerRef} className="pointer-events-none absolute inset-0">
@@ -563,7 +565,6 @@ function DraggableOverlay({
 }) {
   const selectedOverlayId = useTimelineStore((s) => s.selectedOverlayId);
   const selectOverlay = useTimelineStore((s) => s.selectOverlay);
-  const updateOverlay = useTimelineStore((s) => s.updateOverlay);
   const dragRef = useRef<DragRef | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -596,12 +597,8 @@ function DraggableOverlay({
     if (!drag.moved && Math.hypot(dxPx, dyPx) > 2) drag.moved = true;
     const nextX = Math.max(0, Math.min(1, drag.originX + dxPx / drag.rectWidth));
     const nextY = Math.max(0, Math.min(1, drag.originY + dyPx / drag.rectHeight));
-    updateOverlay(overlay.id, {
-      style: {
-        ...overlay.style,
-        position: { x: nextX, y: nextY },
-      },
-    });
+    // Keyframes the move at the playhead when the text is animated.
+    useTimelineStore.getState().moveOverlayTo(overlay.id, { x: nextX, y: nextY });
   };
 
   const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -724,15 +721,22 @@ function ShapeView({
     const dx = (e.clientX - d.pointerX) / d.rectWidth;
     const dy = (e.clientY - d.pointerY) / d.rectHeight;
     const o = d.box;
-    const box =
-      d.mode === 'move'
-        ? { ...o, x: o.x + dx, y: o.y + dy }
-        : d.mode === 'resize'
-          ? { ...o, w: Math.max(0.02, o.w + dx), h: Math.max(0.02, o.h + dy) }
-          : d.mode === 'tip'
-            ? { ...o, w: o.w + dx, h: o.h + dy }
-            : { x: o.x + dx, y: o.y + dy, w: o.w - dx, h: o.h - dy };
-    useTimelineStore.getState().updateShape(shape.id, { box });
+    const s = useTimelineStore.getState();
+    // Position changes go through moveOverlayTo so an animated shape
+    // gets a keyframe; size changes edit the box directly.
+    if (d.mode === 'move') {
+      s.moveOverlayTo(shape.id, { x: o.x + dx, y: o.y + dy });
+    } else if (d.mode === 'resize') {
+      s.updateShape(shape.id, {
+        box: { ...shape.box, w: Math.max(0.02, o.w + dx), h: Math.max(0.02, o.h + dy) },
+      });
+    } else if (d.mode === 'tip') {
+      s.updateShape(shape.id, { box: { ...shape.box, w: o.w + dx, h: o.h + dy } });
+    } else {
+      // Tail: the anchor moves and the tip stays put.
+      s.updateShape(shape.id, { box: { ...shape.box, w: o.w - dx, h: o.h - dy } });
+      s.moveOverlayTo(shape.id, { x: o.x + dx, y: o.y + dy });
+    }
   };
   const end = (e: React.PointerEvent<HTMLElement>) => {
     if (!dragRef.current) return;

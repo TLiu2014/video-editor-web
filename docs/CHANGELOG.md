@@ -8,7 +8,14 @@ Status of the remaining gaps is tracked at the bottom.
 
 ## 2026-10-21
 
-### Text styling
+### Keyframes for picture-in-picture and annotations
+- **PiP motion:** keyframed position, scale and rotation for clips on V2 and above. Turn on **Animate** in the PiP section; after that, sliders and preview drags set keyframes at the playhead. Sky-blue diamonds mark them on the clip. Opacity stays fixed, because animating it would be too slow to export in the browser.
+- **Motion paths for text and annotations:** turn on **Animate position**, then drag the overlay in the preview at different times. Diamonds show on its overlay-lane bar, and moving the bar moves the animation with it.
+- All keyframes now share one easing engine (`lib/keyframes.ts`), and zoom & pan was moved onto it.
+- Fix: rotated PiP layers exported shifted from where the preview showed them. They're now placed by their center.
+- Fix: a rotation that changed over time exported with an opaque box behind the layer. ffmpeg's `rotate` needs `c=black@0`; `c=none` leaves stale pixels.
+
+### Text styling — `1933fa0`
 - Text overlays get a font (Sans, Serif, Mono, Display, Handwritten), weight (Regular, Bold, Heavy), italic, alignment, drop shadow, outline (color and width) and a background box (color and opacity).
 - Fix: multi-line text now exports as multiple lines. Before, the preview showed the lines but the export drew them on one line. Preview and export now use the same canvas renderer.
 
@@ -66,5 +73,6 @@ Status of the remaining gaps is tracked at the bottom.
 | JKL playback | Done (this release) |
 | Track lock and track height | Done (this release) |
 | Text styling (font, weight, alignment, background, outline) | Done (this release) |
-| Keyframes for PiP and annotations | Not started |
+| Keyframes for PiP and annotations | Done (this release): position, scale and rotation for PiP; position for text and annotations |
+| Keyframed opacity, and scale / rotation for text and annotations | Not started (opacity needs a slow per-pixel filter in wasm) |
 | Deployment of the editor and marketing site | Needs a decision on where to host |

@@ -288,6 +288,13 @@ Higher video tracks draw on top of lower ones, so a clip on **V2** covers **V1**
 
 Without PiP enabled, a V2 clip fills the frame and fully covers V1. Rotation and opacity can only be set in Properties.
 
+**Animate PiP:** with the playhead over the clip, turn on **Animate**. That stores the current position, scale and rotation as the first keyframe.
+- Move the playhead and drag the layer, or change the sliders, to add another keyframe.
+- Between keyframes the layer glides and eases. Before the first and after the last, it holds.
+- **◀ / ▶**, **Add keyframe** and **Delete keyframe** work as in Zoom & pan. Sky-blue diamonds on the clip mark the keyframes; click one to jump to it.
+- Turning **Animate** off keeps the layer where it is at the playhead.
+- Opacity can't be animated; use fades for that.
+
 **Limit:** audio from clips on V2 and above is muted in both the preview and the export. Put sound you need on an audio track, or keep that clip on V1.
 
 ---
@@ -352,6 +359,11 @@ Add one with **Edit → Add Callout / Add Arrow / Add Rectangle / Add Ellipse**,
 - **Fade in / fade out.** New annotations and text fade in and out over 0.3 s by default. Set either to **None** for a hard cut.
 
 Fades show in the preview and in the export, and appear as shaded ramps at the ends of the bar in the overlay lane. Captions don't fade, so quick subtitles stay crisp. If you trim an overlay shorter than its fades, they shrink to fit.
+
+**Motion paths:** to make text or an annotation travel across the frame, select it, put the playhead inside it and turn on **Animate position** in Properties.
+- Then move the playhead and drag it in the preview; each drag sets a keyframe, and between keyframes it glides smoothly.
+- Keyframes show as diamonds on its bar in the overlay lane. Dragging the bar to retime the overlay moves the animation with it.
+- Turning Animate position off leaves it where it is at the playhead.
 
 Annotations are drawn the same way in the preview and in the export, so what you see is what you get. Defaults scale with the project's height, so lines and text look the same size in 720p and 4K.
 

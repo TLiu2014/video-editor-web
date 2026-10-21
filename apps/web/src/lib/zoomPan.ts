@@ -1,5 +1,17 @@
 import { clipRate } from './clipRate';
+import {
+  ffmpegCurve,
+  keyAt,
+  KEYFRAME_EPSILON,
+  mergeKeys,
+  removeKey,
+  sampleCurve,
+  sortKeys,
+  upsertKey,
+} from './keyframes';
 import type { VideoClip, ZoomKeyframe } from '../types/timeline';
+
+export { KEYFRAME_EPSILON };
 
 /**
  * Keyframed zoom & pan for V1 clips (Camtasia's "Zoom-n-Pan").
@@ -17,8 +29,6 @@ import type { VideoClip, ZoomKeyframe } from '../types/timeline';
 
 export const MIN_ZOOM = 1;
 export const MAX_ZOOM = 5;
-/** Two keyframes closer than this (source seconds) are the same one. */
-export const KEYFRAME_EPSILON = 1 / 60;
 
 export interface ZoomView {
   zoom: number;
@@ -28,8 +38,6 @@ export interface ZoomView {
 }
 
 export const IDENTITY_VIEW: ZoomView = { zoom: 1, cx: 0.5, cy: 0.5 };
-
-const smoothstep = (u: number) => u * u * (3 - 2 * u);
 
 /** Keep the view inside the frame: no black edges at any zoom. */
 export function clampView(v: ZoomView): ZoomView {
@@ -44,30 +52,19 @@ export function clampView(v: ZoomView): ZoomView {
 
 /** Sorted copy of a clip's keyframes (empty when it has none). */
 export function keyframesOf(clip: VideoClip): ZoomKeyframe[] {
-  return [...(clip.zoomKeyframes ?? [])].sort((a, b) => a.t - b.t);
+  return sortKeys(clip.zoomKeyframes);
 }
 
 /** The view at source time `t`. */
 export function sampleZoom(clip: VideoClip, t: number): ZoomView {
-  const keys = keyframesOf(clip);
-  const first = keys[0];
-  const last = keys[keys.length - 1];
-  if (!first || !last) return IDENTITY_VIEW;
-  if (t <= first.t) return clampView(first);
-  if (t >= last.t) return clampView(last);
-  for (let i = 1; i < keys.length; i++) {
-    const a = keys[i - 1]!;
-    const b = keys[i]!;
-    if (t <= b.t) {
-      const s = smoothstep((t - a.t) / (b.t - a.t));
-      return clampView({
-        zoom: a.zoom + (b.zoom - a.zoom) * s,
-        cx: a.cx + (b.cx - a.cx) * s,
-        cy: a.cy + (b.cy - a.cy) * s,
-      });
-    }
-  }
-  return clampView(last);
+  const keys = clip.zoomKeyframes;
+  const zoom = sampleCurve(keys, t, (k) => k.zoom);
+  if (zoom === null) return IDENTITY_VIEW;
+  return clampView({
+    zoom,
+    cx: sampleCurve(keys, t, (k) => k.cx) ?? 0.5,
+    cy: sampleCurve(keys, t, (k) => k.cy) ?? 0.5,
+  });
 }
 
 /** Source time shown at timeline second `playhead` (may lie outside the clip). */
@@ -88,7 +85,7 @@ export function visibleKeyframes(clip: VideoClip): ZoomKeyframe[] {
 }
 
 export function keyframeAt(clip: VideoClip, t: number): ZoomKeyframe | null {
-  return keyframesOf(clip).find((k) => Math.abs(k.t - t) < KEYFRAME_EPSILON) ?? null;
+  return keyAt(clip.zoomKeyframes, t);
 }
 
 /** Insert a keyframe at `t`, or replace the one already there. */
@@ -98,23 +95,16 @@ export function upsertKeyframe(
   view: ZoomView,
 ): ZoomKeyframe[] {
   const v = clampView(view);
-  const next = keys.filter((k) => Math.abs(k.t - t) >= KEYFRAME_EPSILON);
-  next.push({ t, zoom: v.zoom, cx: v.cx, cy: v.cy });
-  return next.sort((a, b) => a.t - b.t);
+  return upsertKey(keys, { t, zoom: v.zoom, cx: v.cx, cy: v.cy });
 }
 
 export function removeKeyframe(keys: ZoomKeyframe[], t: number): ZoomKeyframe[] {
-  return keys.filter((k) => Math.abs(k.t - t) >= KEYFRAME_EPSILON);
+  return removeKey(keys, t);
 }
 
 /** Union of two keyframe sets (used when joining split pieces). */
 export function mergeKeyframes(a: ZoomKeyframe[], b: ZoomKeyframe[]): ZoomKeyframe[] {
-  let out = [...a];
-  for (const k of b) {
-    if (!out.some((o) => Math.abs(o.t - k.t) < KEYFRAME_EPSILON)) out.push(k);
-  }
-  out = out.sort((x, y) => x.t - y.t);
-  return out;
+  return mergeKeys(a, b);
 }
 
 /** True when the clip's keyframes ever move the view off identity. */
@@ -153,21 +143,8 @@ export function zoomPanFilter(
   const rate = clipRate(clip);
   const keys = keyframesOf(clip);
   // Keyframe times as segment-local timeline seconds (what in_time is).
-  const at = keys.map((k) => (k.t - segmentStartSource) / rate);
-  const num = (v: number) => v.toFixed(5);
-  const curve = (pick: (k: ZoomKeyframe) => number): string => {
-    let expr = num(pick(keys[keys.length - 1]!));
-    for (let i = keys.length - 1; i >= 1; i--) {
-      const a = keys[i - 1]!;
-      const b = keys[i]!;
-      const ua = at[i - 1]!;
-      const ub = at[i]!;
-      const u = `((in_time-${num(ua)})/${num(Math.max(1e-6, ub - ua))})`;
-      const seg = `${num(pick(a))}+(${num(pick(b) - pick(a))})*${u}*${u}*(3-2*${u})`;
-      expr = `if(lt(in_time,${num(ub)}),${seg},${expr})`;
-    }
-    return `if(lt(in_time,${num(at[0]!)}),${num(pick(keys[0]!))},${expr})`;
-  };
+  const curve = (pick: (k: ZoomKeyframe) => number) =>
+    ffmpegCurve(keys, pick, 'in_time', (t) => (t - segmentStartSource) / rate);
   const z = `clip(${curve((k) => k.zoom)},${MIN_ZOOM},${MAX_ZOOM})`;
   // zoompan's x / y are the crop's top-left in input pixels; clamp the
   // center exactly like clampView so preview and export agree.

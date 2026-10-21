@@ -18,6 +18,9 @@ import {
 } from 'lucide-react';
 import { useMemo } from 'react';
 import { formatTime } from '../lib/formatTime';
+import { keyAt, neighborKeys, removeKey, upsertKey } from '../lib/keyframes';
+import { hasMotion, motionKeyFrom, pipTransformAt } from '../lib/motion';
+import { hasOverlayMotion, overlayAnchorAt } from '../lib/overlayMotion';
 import { resolvedTextStyle, TEXT_FONTS } from '../lib/textRender';
 import {
   KEYFRAME_EPSILON,
@@ -615,8 +618,6 @@ function ZoomPanControl({ clip }: { clip: VideoClip }) {
   };
   const prev = [...keys].reverse().find((k) => k.t < t - KEYFRAME_EPSILON);
   const next = keys.find((k) => k.t > t + KEYFRAME_EPSILON);
-  const iconBtn =
-    'flex size-7 items-center justify-center rounded border border-border text-text-secondary transition hover:bg-chrome disabled:opacity-40 disabled:hover:bg-transparent';
 
   return (
     <div className="flex flex-col gap-3">
@@ -663,47 +664,15 @@ function ZoomPanControl({ clip }: { clip: VideoClip }) {
             format={(v) => `${Math.round(v * 100)}%`}
             onChange={(v) => setView({ cy: v })}
           />
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              className={iconBtn}
-              disabled={!prev}
-              onClick={() => jumpTo(prev)}
-              title="Previous keyframe"
-              aria-label="Previous keyframe"
-            >
-              <ChevronLeftIcon className="size-4" />
-            </button>
-            {here ? (
-              <button
-                type="button"
-                onClick={() => setZoomKeyframes(clip.id, removeKeyframe(all, here.t))}
-                className="flex h-7 flex-1 items-center justify-center gap-1.5 rounded border border-border text-[11px] text-text-secondary transition hover:bg-chrome hover:text-danger"
-              >
-                <DiamondMinusIcon className="size-3.5" />
-                Delete keyframe
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setView({})}
-                className="flex h-7 flex-1 items-center justify-center gap-1.5 rounded border border-border text-[11px] text-text-secondary transition hover:bg-chrome hover:text-text-primary"
-              >
-                <DiamondPlusIcon className="size-3.5" />
-                Add keyframe
-              </button>
-            )}
-            <button
-              type="button"
-              className={iconBtn}
-              disabled={!next}
-              onClick={() => jumpTo(next)}
-              title="Next keyframe"
-              aria-label="Next keyframe"
-            >
-              <ChevronRightIcon className="size-4" />
-            </button>
-          </div>
+          <KeyframeNav
+            hasPrev={!!prev}
+            hasNext={!!next}
+            onKeyframe={!!here}
+            onPrev={() => jumpTo(prev)}
+            onNext={() => jumpTo(next)}
+            onAdd={() => setView({})}
+            onDelete={() => here && setZoomKeyframes(clip.id, removeKeyframe(all, here.t))}
+          />
           {all.length > 0 ? (
             <button
               type="button"
@@ -719,6 +688,72 @@ function ZoomPanControl({ clip }: { clip: VideoClip }) {
           </p>
         </>
       )}
+    </div>
+  );
+}
+
+/** ◀ prev · add / delete keyframe · next ▶ — shared by every animatable section. */
+function KeyframeNav({
+  hasPrev,
+  hasNext,
+  onKeyframe,
+  onPrev,
+  onNext,
+  onAdd,
+  onDelete,
+}: {
+  hasPrev: boolean;
+  hasNext: boolean;
+  /** Whether the playhead sits on a keyframe (shows Delete instead of Add). */
+  onKeyframe: boolean;
+  onPrev: () => void;
+  onNext: () => void;
+  onAdd: () => void;
+  onDelete: () => void;
+}) {
+  const iconBtn =
+    'flex size-7 items-center justify-center rounded border border-border text-text-secondary transition hover:bg-chrome disabled:opacity-40 disabled:hover:bg-transparent';
+  return (
+    <div className="flex items-center gap-1.5">
+      <button
+        type="button"
+        className={iconBtn}
+        disabled={!hasPrev}
+        onClick={onPrev}
+        title="Previous keyframe"
+        aria-label="Previous keyframe"
+      >
+        <ChevronLeftIcon className="size-4" />
+      </button>
+      {onKeyframe ? (
+        <button
+          type="button"
+          onClick={onDelete}
+          className="flex h-7 flex-1 items-center justify-center gap-1.5 rounded border border-border text-[11px] text-text-secondary transition hover:bg-chrome hover:text-danger"
+        >
+          <DiamondMinusIcon className="size-3.5" />
+          Delete keyframe
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={onAdd}
+          className="flex h-7 flex-1 items-center justify-center gap-1.5 rounded border border-border text-[11px] text-text-secondary transition hover:bg-chrome hover:text-text-primary"
+        >
+          <DiamondPlusIcon className="size-3.5" />
+          Add keyframe
+        </button>
+      )}
+      <button
+        type="button"
+        className={iconBtn}
+        disabled={!hasNext}
+        onClick={onNext}
+        title="Next keyframe"
+        aria-label="Next keyframe"
+      >
+        <ChevronRightIcon className="size-4" />
+      </button>
     </div>
   );
 }
@@ -798,6 +833,9 @@ function ColorControl({ clip }: { clip: AnyClip }) {
 
 function PiPTransformControl({ clip }: { clip: VideoClip }) {
   const setClipTransform = useTimelineStore((s) => s.setClipTransform);
+  const setMotionKeyframes = useTimelineStore((s) => s.setMotionKeyframes);
+  const editPipTransform = useTimelineStore((s) => s.editPipTransform);
+  const playhead = useTimelineStore((s) => s.playheadPosition);
   const isOverlayTrack = useTimelineStore((s) => {
     const project = s.currentProject;
     if (!project) return false;
@@ -812,8 +850,35 @@ function PiPTransformControl({ clip }: { clip: VideoClip }) {
   // for the overlay tracks layered on top.
   if (!isOverlayTrack) return null;
 
-  const transform = clip.transform ?? { x: 0.05, y: 0.05, scale: 0.25 };
   const enabled = clip.transform !== undefined;
+  const t = sourceTimeAt(clip, playhead);
+  // What's on screen now: sampled from keyframes when animated.
+  const transform = pipTransformAt(clip, t) ?? { x: 0.05, y: 0.05, scale: 0.25 };
+  const animated = hasMotion(clip);
+  const inside =
+    playhead >= clip.startOffset && playhead < clip.startOffset + clip.duration;
+  const keys = clip.motionKeyframes ?? [];
+  const here = animated && inside ? keyAt(keys, t) : null;
+  const { prev, next } = neighborKeys(keys, t);
+  const jumpTo = (k: { t: number } | undefined) => {
+    if (k) useTimelineStore.getState().updatePlayhead(timelineTimeOf(clip, k.t));
+  };
+  const setAnimated = (on: boolean) => {
+    if (on) {
+      setMotionKeyframes(clip.id, [motionKeyFrom(t, transform)]);
+    } else {
+      // Keep what's on screen as the static transform.
+      setClipTransform(clip.id, {
+        x: transform.x,
+        y: transform.y,
+        scale: transform.scale,
+        rotation: transform.rotation ?? 0,
+      });
+      setMotionKeyframes(clip.id, null);
+    }
+  };
+  const disabled = animated && !inside;
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
@@ -823,7 +888,10 @@ function PiPTransformControl({ clip }: { clip: VideoClip }) {
         {enabled ? (
           <button
             type="button"
-            onClick={() => setClipTransform(clip.id, null)}
+            onClick={() => {
+              setMotionKeyframes(clip.id, null);
+              setClipTransform(clip.id, null);
+            }}
             className="flex items-center gap-1 text-[11px] text-text-muted transition hover:text-text-primary"
             title="Reset to full frame"
           >
@@ -844,6 +912,36 @@ function PiPTransformControl({ clip }: { clip: VideoClip }) {
       </div>
       {enabled ? (
         <>
+          <div className="flex items-center justify-between">
+            <label className="text-[11px] uppercase tracking-wide text-text-muted">
+              Animate
+            </label>
+            <Switch
+              checked={animated}
+              disabled={!inside && !animated}
+              onCheckedChange={setAnimated}
+              aria-label="Animate picture-in-picture"
+            />
+          </div>
+          {animated ? (
+            inside ? (
+              <KeyframeNav
+                hasPrev={!!prev}
+                hasNext={!!next}
+                onKeyframe={!!here}
+                onPrev={() => jumpTo(prev)}
+                onNext={() => jumpTo(next)}
+                onAdd={() =>
+                  setMotionKeyframes(clip.id, upsertKey(keys, motionKeyFrom(t, transform)))
+                }
+                onDelete={() => here && setMotionKeyframes(clip.id, removeKey(keys, here.t))}
+              />
+            ) : (
+              <p className="text-[11px] leading-relaxed text-text-muted">
+                Move the playhead over this clip to edit its keyframes.
+              </p>
+            )
+          ) : null}
           <SliderRow
             label="Position X"
             value={transform.x}
@@ -851,7 +949,7 @@ function PiPTransformControl({ clip }: { clip: VideoClip }) {
             max={1}
             step={0.005}
             format={(v) => `${Math.round(v * 100)}%`}
-            onChange={(v) => setClipTransform(clip.id, { x: v })}
+            onChange={(v) => !disabled && editPipTransform(clip.id, { x: v })}
           />
           <SliderRow
             label="Position Y"
@@ -860,7 +958,7 @@ function PiPTransformControl({ clip }: { clip: VideoClip }) {
             max={1}
             step={0.005}
             format={(v) => `${Math.round(v * 100)}%`}
-            onChange={(v) => setClipTransform(clip.id, { y: v })}
+            onChange={(v) => !disabled && editPipTransform(clip.id, { y: v })}
           />
           <SliderRow
             label="Scale"
@@ -869,7 +967,7 @@ function PiPTransformControl({ clip }: { clip: VideoClip }) {
             max={1}
             step={0.01}
             format={(v) => `${Math.round(v * 100)}%`}
-            onChange={(v) => setClipTransform(clip.id, { scale: v })}
+            onChange={(v) => !disabled && editPipTransform(clip.id, { scale: v })}
           />
           <SliderRow
             label="Rotation"
@@ -878,7 +976,7 @@ function PiPTransformControl({ clip }: { clip: VideoClip }) {
             max={180}
             step={1}
             format={(v) => `${Math.round(v)}°`}
-            onChange={(v) => setClipTransform(clip.id, { rotation: v })}
+            onChange={(v) => !disabled && editPipTransform(clip.id, { rotation: v })}
           />
           <SliderRow
             label="Opacity"
@@ -890,10 +988,9 @@ function PiPTransformControl({ clip }: { clip: VideoClip }) {
             onChange={(v) => setClipTransform(clip.id, { opacity: v })}
           />
           <p className="text-[10px] leading-snug text-text-muted">
-            Source aspect is preserved. Position is the top-left
-            corner; scale is the width as a fraction of the project
-            frame. Rotation pivots around the layer's center;
-            opacity multiplies with the fade envelope.
+            {animated
+              ? 'Position, scale and rotation are keyframed: changing them (or dragging the layer in the preview) sets a keyframe at the playhead. Opacity stays fixed.'
+              : "Source aspect is preserved. Position is the top-left corner; scale is the width as a fraction of the project frame. Rotation pivots around the layer's center; opacity multiplies with the fade envelope."}
           </p>
         </>
       ) : (
@@ -1139,6 +1236,7 @@ function OverlayProperties({ overlay }: { overlay: TextOverlay }) {
           overlay={overlay}
           onChange={(patch) => updateOverlay(overlay.id, patch)}
         />
+        <OverlayMotionControl overlay={overlay} />
       </div>
     </PanelShell>
   );
@@ -1286,6 +1384,7 @@ function ShapeProperties({ shape }: { shape: ShapeOverlay }) {
           overlay={shape}
           onChange={(patch) => updateShape(shape.id, patch)}
         />
+        <OverlayMotionControl overlay={shape} />
       </div>
     </PanelShell>
   );
@@ -1444,6 +1543,73 @@ function TextStyleControls({
             onChange={(v) => onChange({ background: { ...r.background!, opacity: v } })}
           />
         </>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Motion path for a text overlay or annotation: with Animate position
+ * on, dragging it in the preview sets a keyframe at the playhead.
+ */
+function OverlayMotionControl({ overlay }: { overlay: AnyOverlay }) {
+  const playhead = useTimelineStore((s) => s.playheadPosition);
+  const setOverlayMotion = useTimelineStore((s) => s.setOverlayMotion);
+  const inside =
+    playhead >= overlay.startOffset && playhead < overlay.startOffset + overlay.duration;
+  const local = Math.max(0, Math.min(overlay.duration, playhead - overlay.startOffset));
+  const animated = hasOverlayMotion(overlay);
+  const keys = overlay.motion ?? [];
+  const here = animated && inside ? keyAt(keys, local) : null;
+  const { prev, next } = neighborKeys(keys, local);
+  const jumpTo = (k: { t: number } | undefined) => {
+    if (k) useTimelineStore.getState().updatePlayhead(overlay.startOffset + k.t);
+  };
+  const keyHere = () => ({ t: local, ...overlayAnchorAt(overlay, playhead) });
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <label className="text-[11px] uppercase tracking-wide text-text-muted">
+          Animate position
+        </label>
+        <Switch
+          checked={animated}
+          disabled={!inside && !animated}
+          onCheckedChange={(on) => {
+            if (on) {
+              setOverlayMotion(overlay.id, [keyHere()]);
+            } else {
+              // Keep it where it is now.
+              const p = overlayAnchorAt(overlay, playhead);
+              setOverlayMotion(overlay.id, null);
+              useTimelineStore.getState().moveOverlayTo(overlay.id, p);
+            }
+          }}
+          aria-label="Animate position"
+        />
+      </div>
+      {animated ? (
+        inside ? (
+          <>
+            <KeyframeNav
+              hasPrev={!!prev}
+              hasNext={!!next}
+              onKeyframe={!!here}
+              onPrev={() => jumpTo(prev)}
+              onNext={() => jumpTo(next)}
+              onAdd={() => setOverlayMotion(overlay.id, upsertKey(keys, keyHere()))}
+              onDelete={() => here && setOverlayMotion(overlay.id, removeKey(keys, here.t))}
+            />
+            <p className="text-[11px] leading-relaxed text-text-muted">
+              Drag it in the preview to set its position at the playhead.
+              Between keyframes it glides smoothly.
+            </p>
+          </>
+        ) : (
+          <p className="text-[11px] leading-relaxed text-text-muted">
+            Move the playhead over this overlay to edit its keyframes.
+          </p>
+        )
       ) : null}
     </div>
   );

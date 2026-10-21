@@ -371,8 +371,22 @@ export function Clip({
         ) : null}
       </div>
 
-      {clip.kind === 'video' && onBaseTrack && mode === null ? (
-        <ZoomKeyframeMarkers clip={clip} pps={pps} />
+      {clip.kind === 'video' && mode === null ? (
+        onBaseTrack ? (
+          <KeyframeMarkers
+            clip={clip}
+            pps={pps}
+            times={visibleKeyframes(clip).map((k) => k.t)}
+            kind="zoom"
+          />
+        ) : clip.transform ? (
+          <KeyframeMarkers
+            clip={clip}
+            pps={pps}
+            times={(clip.motionKeyframes ?? []).map((k) => k.t)}
+            kind="motion"
+          />
+        ) : null
       ) : null}
       <TrimHandle
         side="left"
@@ -392,28 +406,45 @@ export function Clip({
   );
 }
 
-/** Zoom & pan keyframe diamonds along the clip's bottom edge; click to seek. */
-function ZoomKeyframeMarkers({ clip, pps }: { clip: VideoClip; pps: number }) {
-  const keys = visibleKeyframes(clip);
-  if (keys.length === 0) return null;
+/**
+ * Keyframe diamonds along the clip's bottom edge (amber = zoom & pan on
+ * V1, sky = PiP motion on V2+); click one to jump the playhead to it.
+ * `times` are source times; ones outside the trim aren't drawn.
+ */
+function KeyframeMarkers({
+  clip,
+  pps,
+  times,
+  kind,
+}: {
+  clip: VideoClip;
+  pps: number;
+  times: number[];
+  kind: 'zoom' | 'motion';
+}) {
+  const inTrim = times.filter((t) => t >= clip.trimStart - 1e-3 && t <= clip.trimEnd + 1e-3);
+  if (inTrim.length === 0) return null;
   return (
     <>
-      {keys.map((k) => (
+      {inTrim.map((t) => (
         <button
-          key={k.t}
+          key={t}
           type="button"
-          data-zoom-keyframe
+          data-keyframe={kind}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
             const s = useTimelineStore.getState();
             s.selectClip(clip.id);
-            s.updatePlayhead(timelineTimeOf(clip, k.t));
+            s.updatePlayhead(timelineTimeOf(clip, t));
           }}
-          className="absolute bottom-1 z-10 size-2.5 -translate-x-1/2 rotate-45 border border-white bg-amber-400 shadow hover:scale-125"
-          style={{ left: (timelineTimeOf(clip, k.t) - clip.startOffset) * pps }}
-          title={`Zoom ${k.zoom.toFixed(2)}× — click to go to this keyframe`}
-          aria-label="Zoom keyframe"
+          className={clsx(
+            'absolute bottom-1 z-10 size-2.5 -translate-x-1/2 rotate-45 border border-white shadow hover:scale-125',
+            kind === 'zoom' ? 'bg-amber-400' : 'bg-sky-400',
+          )}
+          style={{ left: (timelineTimeOf(clip, t) - clip.startOffset) * pps }}
+          title={`${kind === 'zoom' ? 'Zoom' : 'Motion'} keyframe — click to go to it`}
+          aria-label={`${kind === 'zoom' ? 'Zoom' : 'Motion'} keyframe`}
         />
       ))}
     </>

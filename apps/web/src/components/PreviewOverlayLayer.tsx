@@ -4,7 +4,9 @@ import { clipRate } from '../lib/clipRate';
 import { clipCssFilter } from '../lib/effects';
 import { fadeEnvelope } from '../lib/fadeEnvelope';
 import { mediaRateFactor, mediaShouldPlay } from '../lib/shuttle';
+import { pipTransformAt } from '../lib/motion';
 import { stillUrl } from '../lib/stills';
+import { sourceTimeAt } from '../lib/zoomPan';
 import { useTimelineStore } from '../store/useTimelineStore';
 import type { VideoClip } from '../types/timeline';
 
@@ -103,6 +105,7 @@ function PreviewOverlayClip({ clipId }: { clipId: string }) {
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
+  const layerRef = useRef<HTMLDivElement>(null);
   const urlRef = useRef<string | null>(null);
   const selected = useTimelineStore((s) => s.selectedClipIds.includes(clipId));
   const dragRef = useRef<{
@@ -118,7 +121,9 @@ function PreviewOverlayClip({ clipId }: { clipId: string }) {
     e: React.PointerEvent<HTMLDivElement>,
     mode: 'move' | 'scale',
   ) => {
-    const t = clip?.transform;
+    const playhead = useTimelineStore.getState().playheadPosition;
+    // Start from what's on screen — the sampled value if animated.
+    const t = clip ? pipTransformAt(clip, sourceTimeAt(clip, playhead)) : undefined;
     const frame = (e.currentTarget.closest('[data-pip-layer]') as HTMLElement | null)
       ?.parentElement;
     if (!clip || !t || !frame || e.button !== 0) return;
@@ -140,10 +145,11 @@ function PreviewOverlayClip({ clipId }: { clipId: string }) {
     if (!d || !clip) return;
     const dx = (e.clientX - d.pointerX) / d.frameW;
     const dy = (e.clientY - d.pointerY) / d.frameH;
-    // The store clamps x / y / scale into the frame.
+    // The store clamps x / y / scale into the frame, and keyframes
+    // the change at the playhead when the layer is animated.
     useTimelineStore
       .getState()
-      .setClipTransform(
+      .editPipTransform(
         clip.id,
         d.mode === 'move'
           ? { x: d.origin.x + dx, y: d.origin.y + dy }
@@ -182,6 +188,15 @@ function PreviewOverlayClip({ clipId }: { clipId: string }) {
       const opacity = String(
         fadeEnvelope(clip, state.playheadPosition) * layerOpacity,
       );
+      // Keyframed motion: place the layer for this instant.
+      const layer = layerRef.current;
+      if (layer && clip.transform) {
+        const tr = pipTransformAt(clip, sourceTimeAt(clip, state.playheadPosition))!;
+        layer.style.left = `${tr.x * 100}%`;
+        layer.style.top = `${tr.y * 100}%`;
+        layer.style.width = `${tr.scale * 100}%`;
+        layer.style.transform = tr.rotation ? `rotate(${tr.rotation}deg)` : '';
+      }
       if (clip.still) {
         // Nothing to seek or play — only the fade envelope moves.
         if (imgRef.current) imgRef.current.style.opacity = opacity;
@@ -226,7 +241,12 @@ function PreviewOverlayClip({ clipId }: { clipId: string }) {
 
   if (!clip) return null;
 
-  const transform = clip.transform;
+  // Animated layers are re-placed every tick by `sync`; this is the
+  // value at the current playhead so the first paint is right too.
+  const transform = pipTransformAt(
+    clip,
+    sourceTimeAt(clip, useTimelineStore.getState().playheadPosition),
+  );
   const positionStyle: React.CSSProperties = transform
     ? {
         left: `${transform.x * 100}%`,
@@ -273,6 +293,7 @@ function PreviewOverlayClip({ clipId }: { clipId: string }) {
 
   return (
     <div
+      ref={layerRef}
       data-pip-layer
       onPointerDown={(e) => beginDrag(e, 'move')}
       onPointerMove={onDragMove}

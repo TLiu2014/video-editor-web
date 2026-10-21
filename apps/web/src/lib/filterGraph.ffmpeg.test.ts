@@ -277,4 +277,114 @@ describe.skipIf(!run)('export plans through native ffmpeg', () => {
     expect(edge).toBeGreaterThan(190);
     expect(edge).toBeLessThan(300);
   });
+
+  /** Red pixel bounding box of a frame (x range on row y, or full bbox). */
+  function redBox(video: string, t: number): { x0: number; x1: number; y0: number; y1: number } | null {
+    const raw = execFileSync('ffmpeg', ['-loglevel', 'error', '-ss', String(t), '-i', video, '-frames:v', '1',
+      '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { cwd: dir });
+    let x0 = 1e9; let x1 = -1; let y0 = 1e9; let y1 = -1;
+    for (let i = 0; i < 320 * 180; i++) {
+      if (raw[i * 3]! > 150 && raw[i * 3 + 2]! < 100) {
+        const x = i % 320; const y = Math.floor(i / 320);
+        x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+      }
+    }
+    return x1 < 0 ? null : { x0, x1, y0, y1 };
+  }
+
+  const pipProject = (extra: Partial<VideoClip>) => {
+    const blue = fileFrom('blue.mp4', 'video/mp4');
+    const red = fileFrom('red.mp4', 'video/mp4');
+    return project(
+      [videoClip('a', blue, 0, 3)],
+      [videoClip('r', red, 0, 3, { hasAudio: false, ...extra })],
+    );
+  };
+
+  it('places a rotated PiP layer by its center, like the preview', () => {
+    // 25% wide (80×45) at top-left (40, 45) → center (80, 67.5).
+    execPlan(pipProject({ transform: { x: 0.125, y: 0.25, scale: 0.25, rotation: 45 } }), 'rot.mp4');
+    const b = redBox('rot.mp4', 1)!;
+    expect(Math.abs((b.x0 + b.x1) / 2 - 80)).toBeLessThan(3);
+    expect(Math.abs((b.y0 + b.y1) / 2 - 67.5)).toBeLessThan(3);
+    // A 45° 80×45 rectangle spans ~88px, wider than the unrotated 80.
+    expect(b.x1 - b.x0).toBeGreaterThan(84);
+  });
+
+  it('animates PiP position along its keyframes', () => {
+    execPlan(pipProject({
+      transform: { x: 0, y: 0, scale: 0.25 },
+      motionKeyframes: [
+        { t: 0.5, x: 0, y: 0, scale: 0.25, rotation: 0 },
+        { t: 2.5, x: 0.75, y: 0.5, scale: 0.25, rotation: 0 },
+      ],
+    }), 'move.mp4');
+    const start = redBox('move.mp4', 0.2)!;
+    const end = redBox('move.mp4', 2.8)!;
+    expect(start.x0).toBeLessThan(3);
+    expect(Math.abs(end.x0 - 240)).toBeLessThan(3);
+    expect(Math.abs(end.y0 - 90)).toBeLessThan(3);
+    const mid = redBox('move.mp4', 1.5)!; // eased halfway
+    expect(Math.abs(mid.x0 - 120)).toBeLessThan(6);
+  });
+
+  it('animates PiP scale (and scale + rotation together)', () => {
+    execPlan(pipProject({
+      transform: { x: 0, y: 0, scale: 0.1 },
+      motionKeyframes: [
+        { t: 0.5, x: 0, y: 0, scale: 0.1, rotation: 0 },
+        { t: 2.5, x: 0, y: 0, scale: 0.5, rotation: 0 },
+      ],
+    }), 'grow.mp4');
+    expect(redBox('grow.mp4', 0.2)!.x1).toBeLessThan(36);
+    expect(Math.abs(redBox('grow.mp4', 2.8)!.x1 - 159)).toBeLessThan(3);
+
+    execPlan(pipProject({
+      transform: { x: 0.25, y: 0.25, scale: 0.1 },
+      motionKeyframes: [
+        { t: 0.5, x: 0.25, y: 0.25, scale: 0.1, rotation: 0 },
+        { t: 2.5, x: 0.25, y: 0.25, scale: 0.4, rotation: 90 },
+      ],
+    }), 'spin.mp4');
+    // At the end: 128×72 rotated 90° → 72 wide, 128 tall, centered at
+    // (80 + 64, 45 + 36) = (144, 81).
+    const b = redBox('spin.mp4', 2.8)!;
+    expect(Math.abs(b.x1 - b.x0 - 72)).toBeLessThan(5);
+    expect(Math.abs(b.y1 - b.y0 - 128)).toBeLessThan(5);
+    expect(Math.abs((b.x0 + b.x1) / 2 - 144)).toBeLessThan(3);
+  });
+
+  it('moves an annotation along its motion path', () => {
+    const blue = fileFrom('blue.mp4', 'video/mp4');
+    const p = project([videoClip('a', blue, 0, 3)]);
+    p.overlays = [{
+      ...createShapeOverlay('rect', 0, 180),
+      box: { x: 0, y: 0, w: 0.25, h: 0.25 },
+      duration: 3,
+      fadeIn: 0,
+      fadeOut: 0,
+      motion: [{ t: 0.5, x: 0, y: 0 }, { t: 2.5, x: 0.5, y: 0.5 }],
+    }];
+    execPlan(p, 'path.mp4');
+    // The placeholder PNG is white and as big as the shape's bounds
+    // (box + stroke padding), so measure its left / top edge.
+    const white = (t: number) => {
+      const raw = execFileSync('ffmpeg', ['-loglevel', 'error', '-ss', String(t), '-i', 'path.mp4', '-frames:v', '1',
+        '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { cwd: dir });
+      let x0 = 1e9; let y0 = 1e9;
+      for (let i = 0; i < 320 * 180; i++) {
+        if (raw[i * 3]! > 200 && raw[i * 3 + 2]! > 200 && raw[i * 3 + 1]! > 200) {
+          x0 = Math.min(x0, i % 320); y0 = Math.min(y0, Math.floor(i / 320));
+        }
+      }
+      return { x0, y0 };
+    };
+    const pad = 3; // stroke 1 (180p) → pad ceil(0.5)+2
+    expect(white(0.2)).toEqual({ x0: 0, y0: 0 }); // clipped at the frame edge
+    const end = white(2.8);
+    expect(Math.abs(end.x0 - (160 - pad))).toBeLessThan(3);
+    expect(Math.abs(end.y0 - (90 - pad))).toBeLessThan(3);
+    const mid = white(1.5);
+    expect(Math.abs(mid.x0 - (80 - pad))).toBeLessThan(5);
+  });
 });

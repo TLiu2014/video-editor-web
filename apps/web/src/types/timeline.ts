@@ -154,6 +154,17 @@ export interface ZoomKeyframe {
   cy: number;
 }
 
+/** One PiP motion keyframe — see lib/motion.ts. */
+export interface MotionKeyframe {
+  /** SOURCE time in seconds. */
+  t: number;
+  x: number;
+  y: number;
+  scale: number;
+  /** Degrees, clockwise. */
+  rotation: number;
+}
+
 export interface VideoClip extends BaseClip {
   kind: 'video';
   /**
@@ -170,6 +181,12 @@ export interface VideoClip extends BaseClip {
   transitionIn?: { kind: TransitionKind; duration: number };
   /** Zoom & pan animation (V1 only). Absent / empty = full frame. */
   zoomKeyframes?: ZoomKeyframe[];
+  /**
+   * PiP motion (V2+ with a transform): keyframed position, scale and
+   * rotation that override the static `transform` values (opacity
+   * stays static). Source time, like zoom keyframes.
+   */
+  motionKeyframes?: MotionKeyframe[];
   /**
    * Best-effort probe at import time. When false, the export pipeline
    * substitutes silence for this clip's audio span instead of
@@ -231,6 +248,8 @@ export interface TextOverlay {
   /** Seconds to fade in / out (opacity). Absent = 0 (hard cut). */
   fadeIn?: number;
   fadeOut?: number;
+  /** Keyframed position (motion path) — see lib/overlayMotion.ts. */
+  motion?: OverlayMotionKeyframe[];
   style: TextOverlayStyle;
 }
 
@@ -261,6 +280,8 @@ export interface ShapeOverlay {
   /** Seconds to fade in / out (opacity). Absent = 0 (hard cut). */
   fadeIn?: number;
   fadeOut?: number;
+  /** Keyframed position (motion path) — see lib/overlayMotion.ts. */
+  motion?: OverlayMotionKeyframe[];
   /**
    * Geometry as 0–1 fractions of the project frame. For box shapes
    * (x, y) is the top-left and (w, h) the size, both positive. For an
@@ -271,6 +292,18 @@ export interface ShapeOverlay {
   /** Callout text (may contain newlines). */
   text?: string;
   style: ShapeStyle;
+}
+
+/**
+ * Overlay motion keyframe: where the overlay's anchor (text: its
+ * box's top-left; shape: `box.x / box.y`) is, as frame fractions.
+ * `t` is seconds from the overlay's start, so moving the overlay in
+ * time carries its animation with it.
+ */
+export interface OverlayMotionKeyframe {
+  t: number;
+  x: number;
+  y: number;
 }
 
 /** Anything drawn over the video for a span of time. */

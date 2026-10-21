@@ -6,6 +6,11 @@ import {
 } from '../lib/clipBounds';
 import { computeTimelineDuration } from '../lib/clipRate';
 import { newId } from '../lib/ids';
+import { upsertKey } from '../lib/keyframes';
+import { hasMotion, motionKeyFrom, pipTransformAt } from '../lib/motion';
+import { hasOverlayMotion } from '../lib/overlayMotion';
+import { isTextOverlay } from '../lib/shapes';
+import { sourceTimeAt } from '../lib/zoomPan';
 import {
   baseTrackClips,
   MAX_TRANSITION_DURATION,
@@ -43,6 +48,8 @@ import type {
   TrackId,
   TransitionKind,
   VideoClip,
+  MotionKeyframe,
+  OverlayMotionKeyframe,
   VideoClipEffects,
   ZoomKeyframe,
   VideoProject,
@@ -286,6 +293,14 @@ export interface TimelineActions {
     overlayId: OverlayId,
     patch: Partial<Omit<TextOverlay, 'id'>>,
   ) => void;
+  /**
+   * Move an overlay's anchor (text box top-left / shape box x,y) the way
+   * the user means it: on an animated overlay this sets a motion
+   * keyframe at the playhead; otherwise it moves the overlay.
+   */
+  moveOverlayTo: (overlayId: OverlayId, p: { x: number; y: number }) => void;
+  /** Replace (or clear with null) an overlay's motion keyframes. */
+  setOverlayMotion: (overlayId: OverlayId, keys: OverlayMotionKeyframe[] | null) => void;
   /** Patch an annotation shape (geometry, style, text, timing). */
   updateShape: (
     overlayId: OverlayId,
@@ -299,6 +314,19 @@ export interface TimelineActions {
   setClipTransitionIn: (
     clipId: ClipId,
     transition: { kind: TransitionKind; duration: number } | null,
+  ) => void;
+
+  /** Replace (or clear with null) a PiP clip's motion keyframes. */
+  setMotionKeyframes: (clipId: ClipId, keyframes: MotionKeyframe[] | null) => void;
+  /**
+   * Edit a PiP layer's transform the way the user means it: on an
+   * animated clip, x / y / scale / rotation set a keyframe at the
+   * playhead; otherwise they edit the static transform. Opacity is
+   * always static.
+   */
+  editPipTransform: (
+    clipId: ClipId,
+    patch: Partial<{ x: number; y: number; scale: number; rotation: number; opacity: number }>,
   ) => void;
 
   /** Replace (or clear with null) a video clip's zoom & pan keyframes. */
@@ -1284,6 +1312,40 @@ export const useTimelineStore = create<TimelineStore>()(
         };
       }),
 
+    moveOverlayTo: (overlayId, p) => {
+      const s = get();
+      const o = s.currentProject?.overlays.find((x) => x.id === overlayId);
+      if (!o) return;
+      if (hasOverlayMotion(o)) {
+        const local = Math.max(0, Math.min(o.duration, s.playheadPosition - o.startOffset));
+        s.setOverlayMotion(overlayId, upsertKey(o.motion, { t: local, x: p.x, y: p.y }));
+        return;
+      }
+      if (isTextOverlay(o)) {
+        s.updateOverlay(overlayId, { style: { ...o.style, position: p } });
+      } else {
+        s.updateShape(overlayId, { box: { ...o.box, x: p.x, y: p.y } });
+      }
+    },
+
+    setOverlayMotion: (overlayId, keys) =>
+      set((state) => {
+        if (!state.currentProject) return state;
+        return {
+          currentProject: {
+            ...state.currentProject,
+            overlays: state.currentProject.overlays.map((o) => {
+              if (o.id !== overlayId) return o;
+              if (!keys || keys.length === 0) {
+                const { motion: _drop, ...rest } = o;
+                return rest as AnyOverlay;
+              }
+              return { ...o, motion: keys };
+            }),
+          },
+        };
+      }),
+
     // Same shallow merge as updateOverlay; the separate action exists
     // so callers get the shape's field types instead of the text's.
     updateShape: (overlayId, patch) =>
@@ -1346,6 +1408,58 @@ export const useTimelineStore = create<TimelineStore>()(
           },
         };
       }),
+
+    setMotionKeyframes: (clipId, keyframes) =>
+      set((state) => {
+        if (!state.currentProject) return state;
+        return {
+          currentProject: {
+            ...state.currentProject,
+            tracks: state.currentProject.tracks.map((track) => ({
+              ...track,
+              clips: track.clips.map((clip) => {
+                if (clip.id !== clipId || clip.kind !== 'video') return clip;
+                if (!keyframes || keyframes.length === 0) {
+                  const { motionKeyframes: _drop, ...rest } = clip;
+                  return rest;
+                }
+                return { ...clip, motionKeyframes: keyframes };
+              }),
+            })),
+          },
+        };
+      }),
+
+    editPipTransform: (clipId, patch) => {
+      const s = get();
+      const project = s.currentProject;
+      if (!project) return;
+      const clip = findClip(project, clipId);
+      if (!clip || clip.kind !== 'video' || isClipLocked(project, clipId)) return;
+      const { opacity, ...motion } = patch;
+      if (!hasMotion(clip)) {
+        s.setClipTransform(clipId, patch);
+        return;
+      }
+      if (opacity !== undefined) s.setClipTransform(clipId, { opacity });
+      if (Object.keys(motion).length === 0) return;
+      const t = sourceTimeAt(clip, s.playheadPosition);
+      const current = pipTransformAt(clip, t)!;
+      const next = { ...current, ...motion };
+      get().setMotionKeyframes(
+        clipId,
+        upsertKey(
+          clip.motionKeyframes,
+          motionKeyFrom(t, {
+            ...next,
+            x: Math.max(0, Math.min(1, next.x)),
+            y: Math.max(0, Math.min(1, next.y)),
+            scale: Math.max(0.05, Math.min(1, next.scale)),
+            rotation: Math.max(-360, Math.min(360, next.rotation ?? 0)),
+          }),
+        ),
+      );
+    },
 
     setZoomKeyframes: (clipId, keyframes) =>
       set((state) => {

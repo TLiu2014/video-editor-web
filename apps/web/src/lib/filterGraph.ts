@@ -1,5 +1,7 @@
 import { clipRate, ffmpegAtempoChain } from './clipRate';
 import { ffmpegEffectFilters } from './effects';
+import { pipFilterParts } from './motion';
+import { hasOverlayMotion, overlayAnchor, overlayMotionXY } from './overlayMotion';
 import { zoomPanFilter } from './zoomPan';
 import {
   effectiveOverlayFades,
@@ -515,10 +517,6 @@ export function buildExportPlan(
       if (inputIdx === undefined) continue;
       const segLabel = `vt${tIdx}_${cIdx}`;
       const isPiP = clip.transform !== undefined;
-      const scaleAndPad = isPiP
-        ? `scale=${Math.round(width * clip.transform!.scale)}:-2`
-        : `scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
-          `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black`;
       const rate = clipRate(clip);
       // Overlay clips need their PTS aligned to wall-clock so the
       // overlay filter's `enable` window picks the right frame.
@@ -529,47 +527,41 @@ export function buildExportPlan(
         rate === 1
           ? `PTS-STARTPTS+${clip.startOffset.toFixed(3)}/TB`
           : `(PTS-STARTPTS)/${rate.toFixed(3)}+${clip.startOffset.toFixed(3)}/TB`;
-      // Rotation: applied AFTER scale so the rotated frame keeps
-      // the user-specified PiP size. `ow`/`oh` auto-fit the rotated
-      // bounding box; the fill color is transparent so the base
-      // shows through the corners. Opacity is composited via
-      // `format=rgba,colorchannelmixer=aa=<o>`, multiplying the
-      // existing alpha plane so transparent corners stay transparent.
-      const rotationDeg = clip.transform?.rotation;
-      const rotateFilter =
-        rotationDeg !== undefined && rotationDeg !== 0
-          ? `,format=rgba,rotate=${(rotationDeg * Math.PI) / 180}:ow='hypot(iw,ih)':oh='hypot(iw,ih)':c=none`
-          : '';
+      // Opacity is composited via `format=rgba,colorchannelmixer=aa=<o>`,
+      // multiplying the existing alpha plane so transparent corners
+      // (rotation, PNG stills) stay transparent.
       const layerOpacity = clip.transform?.opacity;
       const opacityFilter =
         layerOpacity !== undefined && layerOpacity < 1
           ? `,format=rgba,colorchannelmixer=aa=${layerOpacity.toFixed(3)}`
           : '';
+      // PiP: size / rotate / place from lib/motion.ts (static or
+      // keyframed). Full-frame layers letterbox like V1.
+      const pip = isPiP ? pipFilterParts(clip, width) : null;
+      const sizing = pip
+        ? pip.fixedScale
+        : `scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
+          `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black`;
       // Overlay layers carry alpha (yuva420p) so transparent stills
-      // (logos) and alpha fades composite over the base; rotate and
-      // opacity switch to rgba themselves. The overlay filter
-      // re-quantizes to the base layer's format on composite.
-      const pixFmt = rotateFilter || opacityFilter ? '' : ',format=yuva420p';
+      // (logos) and alpha fades composite over the base. The overlay
+      // filter re-quantizes to the base layer's format on composite.
       filterParts.push(
         `[${inputIdx}:v]trim=start=${clip.trimStart.toFixed(3)}:end=${clip.trimEnd.toFixed(3)},` +
           `setpts=${setptsExpr},` +
-          `${scaleAndPad},` +
-          `fps=${fps}${pixFmt}` +
+          `${sizing},` +
+          `fps=${fps},format=yuva420p` +
           (clip.effects ? ffmpegEffectFilters(clip.effects) : '') +
           videoFadeSuffix(clip, true, clip.startOffset) +
-          rotateFilter +
+          (pip?.rotate ? `,${pip.rotate}` : '') +
           opacityFilter +
+          // The only varying-size step comes last (see pipFilterParts).
+          (pip?.finalScale ? `,${pip.finalScale}` : '') +
           `[${segLabel}]`,
       );
       const nextLabel = `vlayer${overlayCounter++}`;
-      const overlayX = isPiP
-        ? Math.round(width * clip.transform!.x)
-        : 0;
-      const overlayY = isPiP
-        ? Math.round(height * clip.transform!.y)
-        : 0;
+      const pos = pip ? `x=${pip.x}:y=${pip.y}` : 'x=0:y=0';
       filterParts.push(
-        `[${videoOutLabel}][${segLabel}]overlay=x=${overlayX}:y=${overlayY}:enable='between(t,${clip.startOffset.toFixed(3)},${(clip.startOffset + clip.duration).toFixed(3)})'[${nextLabel}]`,
+        `[${videoOutLabel}][${segLabel}]overlay=${pos}:enable='between(t,${clip.startOffset.toFixed(3)},${(clip.startOffset + clip.duration).toFixed(3)})'[${nextLabel}]`,
       );
       videoOutLabel = nextLabel;
     }
@@ -627,10 +619,17 @@ export function buildExportPlan(
           y: Math.round(overlay.style.position.y * height),
         }
       : shapePixelBounds(overlay, width, height);
+    // Motion path: same image, moved per frame along its keyframes.
+    const pos = hasOverlayMotion(overlay)
+      ? overlayMotionXY(overlay, width, height, {
+          x: origin.x - overlayAnchor(overlay).x * width,
+          y: origin.y - overlayAnchor(overlay).y * height,
+        })
+      : { x: String(origin.x), y: String(origin.y) };
     filterParts.push(
       `[${videoOutLabel}][${source}]overlay=` +
-        `x=${origin.x}:` +
-        `y=${origin.y}:` +
+        `x=${pos.x}:` +
+        `y=${pos.y}:` +
         `enable='between(t,${startSec},${endSec})'[${nextLabel}]`,
     );
     videoOutLabel = nextLabel;

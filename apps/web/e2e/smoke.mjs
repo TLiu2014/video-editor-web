@@ -159,6 +159,26 @@ if (pip) {
   await page.mouse.move(hb2.x + 66, hb2.y + 6, { steps: 6 }); await page.mouse.up(); await wait();
   const resized = await (await page.$('[data-pip-layer]')).boundingBox();
   ok('PiP corner resize grows layer', resized.width > moved.width + 40, `${moved.width} -> ${resized.width}`);
+
+  // PiP motion: animate, then key a new position 2s later.
+  const sfP = await (await page.$('[data-timeline-surface]')).boundingBox();
+  const seekP = async (sec) => { await page.mouse.click(sfP.x + sec * 80, rulerY); await wait(250); };
+  await seekP(3);
+  await (await page.$('[aria-label="Animate picture-in-picture"]')).click(); await wait(250);
+  const layer = async () => (await page.$('[data-pip-layer]')).boundingBox();
+  const atStart = await layer();
+  await seekP(5);
+  const l5 = await layer();
+  await page.mouse.move(l5.x + l5.width / 2, l5.y + l5.height / 2); await page.mouse.down();
+  await page.mouse.move(l5.x + l5.width / 2 - 120, l5.y + l5.height / 2 + 40, { steps: 6 }); await page.mouse.up(); await wait(250);
+  ok('PiP motion: two keyframe diamonds', (await page.$$('[data-keyframe="motion"]')).length === 2);
+  await seekP(3);
+  const back = await layer();
+  await seekP(4);
+  const midway = await layer();
+  ok('PiP motion: glides between keyframes in the preview',
+    Math.abs(back.x - atStart.x) < 2 && midway.x < back.x - 40 && midway.x > back.x - 80,
+    `3s ${Math.round(back.x)} · 4s ${Math.round(midway.x)}`);
 }
 
 // SRT import from the captions dialog (no API key needed).
@@ -265,6 +285,24 @@ if (tip) {
   ok('dragging the arrow tip extends it', after.width > before.width + 40 && after.height > before.height + 30,
     `${Math.round(before.width)}x${Math.round(before.height)} -> ${Math.round(after.width)}x${Math.round(after.height)}`);
 }
+// Annotation motion path on the arrow ([1s, 4s)): key it at 1s, then
+// drag it at 3s; at 2s it should be halfway.
+{
+  const sfA = await (await page.$('[data-timeline-surface]')).boundingBox();
+  const seekA = async (sec) => { await page.mouse.click(sfA.x + sec * 80, sfA.y + 8); await wait(250); };
+  await seekA(1);
+  const arrowBox = async () => (await page.$$('[data-shape-overlay]')).at(-1).boundingBox();
+  await (await page.$('[aria-label="Animate position"]')).click(); await wait(250);
+  const a1 = await arrowBox();
+  await seekA(3);
+  const a3 = await arrowBox();
+  await page.mouse.move(a3.x + a3.width / 2, a3.y + a3.height / 2); await page.mouse.down();
+  await page.mouse.move(a3.x + a3.width / 2 + 100, a3.y + a3.height / 2, { steps: 6 }); await page.mouse.up(); await wait(250);
+  ok('annotation motion: keyframes show on its lane bar', (await page.$$('[data-keyframe="overlay-motion"]')).length === 2);
+  await seekA(2);
+  const a2 = await arrowBox();
+  ok('annotation motion: halfway at the midpoint', Math.abs(a2.x - (a1.x + 50)) < 8, `1s ${Math.round(a1.x)} · 2s ${Math.round(a2.x)}`);
+}
 await page.keyboard.press('Escape'); await wait();
 
 // Zoom & pan: on clipA (V1, 0–6s) key zoom 5× at 1s and 1× at 4s.
@@ -282,7 +320,7 @@ await page.keyboard.press('Escape'); await wait();
   await (await zoomSlider()).focus(); await page.keyboard.press('End'); await wait(250);
   await seek(4);
   await (await zoomSlider()).focus(); await page.keyboard.press('Home'); await wait(250);
-  ok('two zoom keyframe diamonds on the clip', (await page.$$('[data-zoom-keyframe]')).length === 2);
+  ok('two zoom keyframe diamonds on the clip', (await page.$$('[data-keyframe="zoom"]')).length === 2);
   const mainTransform = () => page.$eval('video.relative', (v) => v.style.transform);
   await seek(0.5);
   const held = await mainTransform();

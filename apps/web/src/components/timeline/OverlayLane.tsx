@@ -218,6 +218,17 @@ function OverlayBar({ overlay, top }: { overlay: AnyOverlay; top: number }) {
           style={{ width: Math.min(dur, fades.fadeOut) * pps }}
         />
       ) : null}
+      {/* Motion keyframes (relative to the overlay's start). */}
+      {(overlay.motion ?? []).map((k) =>
+        k.t >= 0 && k.t <= dur ? (
+          <span
+            key={k.t}
+            data-keyframe="overlay-motion"
+            className="pointer-events-none absolute bottom-0.5 z-10 size-2 -translate-x-1/2 rotate-45 border border-white bg-sky-400"
+            style={{ left: k.t * pps }}
+          />
+        ) : null,
+      )}
       <Icon className="relative size-3 shrink-0" />
       <span className="relative truncate">{label}</span>
       {(['start', 'end'] as const).map((side) => (

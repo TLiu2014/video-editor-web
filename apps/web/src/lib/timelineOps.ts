@@ -1,6 +1,7 @@
 import { computeTimelineDuration } from './clipRate';
 import { newId } from './ids';
 import { STILL_MAX_DURATION } from './stills';
+import { mergeKeys } from './keyframes';
 import { mergeKeyframes } from './zoomPan';
 import type {
   AnyClip,
@@ -8,6 +9,7 @@ import type {
   ClipId,
   MediaAsset,
   MediaId,
+  MotionKeyframe,
   TimelineTrack,
   TrackId,
   VideoClip,
@@ -418,6 +420,11 @@ export function joinClips(
       [],
     );
     if (keys.length > 0) joined.zoomKeyframes = keys;
+    const motion = check.ordered.reduce<MotionKeyframe[]>(
+      (acc, c) => (c.kind === 'video' ? mergeKeys(acc, c.motionKeyframes ?? []) : acc),
+      [],
+    );
+    if (motion.length > 0) joined.motionKeyframes = motion;
   }
   const drop = new Set(check.ordered.slice(1).map((c) => c.id));
   return {
