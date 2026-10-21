@@ -1,12 +1,18 @@
-import { createStore, del, get, keys, set } from 'idb-keyval';
 import {
-  rehydrateClip,
+  del,
+  get,
+  keys,
+  promisifyRequest,
+  set,
+  type UseStore,
+} from 'idb-keyval';
+import {
+  rehydrateProject,
   serializeProject,
 } from '../serialization/project';
 import type {
   ProjectId,
   SerializedProject,
-  TimelineTrack,
   VideoProject,
 } from '../types/timeline';
 
@@ -15,7 +21,10 @@ import type {
  *
  * Two object stores live inside the same database:
  *  - `projects` keys `ProjectId -> SerializedProject` (JSON-safe metadata).
- *  - `blobs`    keys `ClipId    -> Blob`              (raw media bytes).
+ *  - `blobs`    keys `MediaId   -> Blob`              (raw media bytes, one
+ *                                                     per library asset; legacy
+ *                                                     projects keyed them by
+ *                                                     ClipId — see rehydrateProject).
  *
  * Splitting metadata and bytes lets us rewrite the project JSON cheaply on
  * every edit without rewriting any media. Listing projects is also a fast
@@ -27,8 +36,42 @@ import type {
  */
 
 const DB_NAME = 'video-editor-web';
-const projectsStore = createStore(DB_NAME, 'projects');
-const blobsStore = createStore(DB_NAME, 'blobs');
+const STORE_NAMES = ['projects', 'blobs'] as const;
+/**
+ * v1 was created by two `idb-keyval` `createStore()` calls on the same
+ * database. That helper only creates its store when the database is
+ * first created, so whichever call ran second never got its store and
+ * every save failed with "object store not found". v2 opens the
+ * database once and creates whichever stores are missing.
+ */
+const DB_VERSION = 2;
+
+let dbPromise: Promise<IDBDatabase> | null = null;
+function openDb(): Promise<IDBDatabase> {
+  if (!dbPromise) {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = () => {
+      for (const name of STORE_NAMES) {
+        if (!request.result.objectStoreNames.contains(name)) {
+          request.result.createObjectStore(name);
+        }
+      }
+    };
+    dbPromise = promisifyRequest(request);
+  }
+  return dbPromise;
+}
+
+/** An `idb-keyval` store bound to one object store of the shared database. */
+function storeOf(name: (typeof STORE_NAMES)[number]): UseStore {
+  return (txMode, callback) =>
+    openDb().then((db) =>
+      callback(db.transaction(name, txMode).objectStore(name)),
+    );
+}
+
+const projectsStore = storeOf('projects');
+const blobsStore = storeOf('blobs');
 
 export interface ProjectListEntry {
   id: ProjectId;
@@ -40,14 +83,15 @@ async function blobExists(id: string): Promise<boolean> {
 }
 
 export async function saveProject(project: VideoProject): Promise<void> {
-  const blobWrites = project.tracks.flatMap((track) =>
-    track.clips.map(async (clip) => {
-      if (!(await blobExists(clip.id))) {
-        await set(clip.id, clip.file, blobsStore);
+  // One blob per library asset — splits and duplicates of a clip
+  // share their asset's bytes instead of each storing a copy.
+  await Promise.all(
+    project.media.map(async (asset) => {
+      if (!(await blobExists(asset.id))) {
+        await set(asset.id, asset.file, blobsStore);
       }
     }),
   );
-  await Promise.all(blobWrites);
   await set(project.id, serializeProject(project), projectsStore);
 }
 
@@ -56,36 +100,7 @@ export async function loadProject(
 ): Promise<VideoProject | null> {
   const serialized = await get<SerializedProject>(id, projectsStore);
   if (!serialized) return null;
-
-  const tracks: TimelineTrack[] = await Promise.all(
-    serialized.tracks.map(async (track) => ({
-      ...track,
-      clips: await Promise.all(
-        track.clips.map(async (clip) => {
-          const blob = await get<Blob>(clip.id, blobsStore);
-          if (!blob) {
-            throw new Error(
-              `missing blob for clip ${clip.id} in project ${id}`,
-            );
-          }
-          return rehydrateClip(clip, blob);
-        }),
-      ),
-    })),
-  );
-
-  return {
-    ...serialized,
-    // Backfill project-level settings for projects persisted before
-    // these fields existed.
-    frameRate:
-      typeof serialized.frameRate === 'number' ? serialized.frameRate : 30,
-    audioSampleRate:
-      typeof serialized.audioSampleRate === 'number'
-        ? serialized.audioSampleRate
-        : 48000,
-    tracks,
-  };
+  return rehydrateProject(serialized, (key) => get<Blob>(key, blobsStore));
 }
 
 export async function listProjects(): Promise<ProjectListEntry[]> {
@@ -104,8 +119,9 @@ export async function deleteProject(id: ProjectId): Promise<void> {
 }
 
 /**
- * Walk every saved project, collect referenced clip ids, and delete any
- * blobs not referenced by at least one project. Returns the count.
+ * Walk every saved project, collect referenced blob keys (asset ids, plus
+ * clip ids for not-yet-migrated legacy projects), and delete any blob not
+ * referenced by at least one project. Returns the count.
  */
 export async function cleanupOrphanedBlobs(): Promise<number> {
   const projectIds = (await keys(projectsStore)) as ProjectId[];
@@ -113,8 +129,12 @@ export async function cleanupOrphanedBlobs(): Promise<number> {
   for (const pid of projectIds) {
     const project = await get<SerializedProject>(pid, projectsStore);
     if (!project) continue;
-    for (const track of project.tracks) {
-      for (const clip of track.clips) referenced.add(clip.id);
+    if (project.media) {
+      for (const asset of project.media) referenced.add(asset.id);
+    } else {
+      for (const track of project.tracks) {
+        for (const clip of track.clips) referenced.add(clip.id);
+      }
     }
   }
 

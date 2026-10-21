@@ -63,6 +63,11 @@ function findNeighborBounds(
  * `Clip` uses this for the live drag preview so the user feels the
  * handle "stick" against neighbors; the store actions use it
  * defensively so non-UI callers can't violate the invariants.
+ *
+ * Units: 'move' deltas are timeline seconds; trim deltas are SOURCE
+ * seconds (they move trimStart / trimEnd). A clip at playbackRate r
+ * covers r source-seconds per timeline-second, so timeline distances
+ * to neighbors are scaled by r before they bound a trim.
  */
 export function computeDeltaRange(
   clip: AnyClip,
@@ -74,6 +79,7 @@ export function computeDeltaRange(
     return { minDelta: 0, maxDelta: 0 };
   }
   const { prevEnd, nextStart } = findNeighborBounds(located.track, located.clip);
+  const rate = clip.playbackRate ?? 1;
 
   if (mode === 'move') {
     return {
@@ -83,8 +89,9 @@ export function computeDeltaRange(
   }
   if (mode === 'trim-left') {
     const minDeltaFromTrim = -clip.trimStart;
-    const maxDeltaFromTrim = clip.trimEnd - clip.trimStart - MIN_CLIP_DURATION;
-    const minDeltaFromNeighbor = prevEnd - clip.startOffset;
+    const maxDeltaFromTrim =
+      clip.trimEnd - clip.trimStart - MIN_CLIP_DURATION * rate;
+    const minDeltaFromNeighbor = (prevEnd - clip.startOffset) * rate;
     return {
       minDelta: Math.max(minDeltaFromTrim, minDeltaFromNeighbor),
       maxDelta: maxDeltaFromTrim,
@@ -92,9 +99,10 @@ export function computeDeltaRange(
   }
   // trim-right
   const minDeltaFromTrim =
-    MIN_CLIP_DURATION - (clip.trimEnd - clip.trimStart);
+    MIN_CLIP_DURATION * rate - (clip.trimEnd - clip.trimStart);
   const maxDeltaFromTrim = clip.sourceDuration - clip.trimEnd;
-  const maxDeltaFromNeighbor = nextStart - (clip.startOffset + clip.duration);
+  const maxDeltaFromNeighbor =
+    (nextStart - (clip.startOffset + clip.duration)) * rate;
   return {
     minDelta: minDeltaFromTrim,
     maxDelta: Math.min(maxDeltaFromTrim, maxDeltaFromNeighbor),

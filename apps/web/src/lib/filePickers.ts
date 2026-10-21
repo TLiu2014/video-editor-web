@@ -18,8 +18,24 @@ export function registerArchiveInput(el: HTMLInputElement | null): void {
   archiveInput = el;
 }
 
-export function triggerMediaPicker(): void {
+let placePickedOnTimeline = false;
+
+/**
+ * Open the media picker. Imports always land in the library; with
+ * `placeOnTimeline` (the empty-state "Start Editing" path) the picked
+ * files are also laid end to end on the timeline so a first-time user
+ * sees their footage immediately.
+ */
+export function triggerMediaPicker(opts?: { placeOnTimeline?: boolean }): void {
+  placePickedOnTimeline = opts?.placeOnTimeline ?? false;
   mediaInput?.click();
+}
+
+/** Read-and-reset the flag set by `triggerMediaPicker`. */
+export function consumePlaceOnTimeline(): boolean {
+  const v = placePickedOnTimeline;
+  placePickedOnTimeline = false;
+  return v;
 }
 
 export function triggerArchivePicker(): void {

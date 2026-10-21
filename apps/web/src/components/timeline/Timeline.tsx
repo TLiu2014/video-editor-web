@@ -1,6 +1,7 @@
 import { PlusIcon } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { computeProjectDuration } from '../../lib/projectMetrics';
+import { useLayoutStore } from '../../store/useLayoutStore';
 import { useTimelineStore } from '../../store/useTimelineStore';
 import {
   getPixelsPerSecond,
@@ -12,6 +13,7 @@ import {
   TRACK_HEIGHT_AUDIO,
   TRACK_HEIGHT_VIDEO,
 } from './constants';
+import { ClipContextMenu } from './ClipContextMenu';
 import { EditToolbar } from './EditToolbar';
 import { InOutMarkers } from './InOutMarkers';
 import { Playhead } from './Playhead';
@@ -25,6 +27,7 @@ export function Timeline() {
   const selectClip = useTimelineStore((s) => s.selectClip);
   const addTrack = useTimelineStore((s) => s.addTrack);
   const pps = usePixelsPerSecond();
+  const height = useLayoutStore((s) => s.timelineHeight);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -79,7 +82,10 @@ export function Timeline() {
   const videoTrackCount = videoCounts.count;
 
   return (
-    <div className="flex h-80 shrink-0 flex-col border-t border-border bg-panel">
+    <div
+      className="flex shrink-0 flex-col border-t border-border bg-panel"
+      style={{ height }}
+    >
       <div className="flex h-11 items-center gap-3 border-b border-border bg-panel px-3 text-[12px] text-text-muted">
         <span className="text-[12px] uppercase tracking-wide">Timeline</span>
         <div className="mx-1 h-5 w-px bg-border" />
@@ -134,6 +140,7 @@ export function Timeline() {
           <Playhead totalHeight={totalHeight} />
         </div>
       </div>
+      <ClipContextMenu />
     </div>
   );
 }

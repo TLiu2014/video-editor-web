@@ -9,6 +9,7 @@ import {
   XSquareIcon,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { markSelectionRange, splitSelection } from '../../lib/editActions';
 import { useTimelineStore } from '../../store/useTimelineStore';
 import { useTimelineViewStore } from '../../store/useTimelineViewStore';
 
@@ -121,14 +122,8 @@ function FloatingToolbar({ position }: { position: { x: number; y: number } }) {
 }
 
 function ToolbarRow({ detached }: { detached: boolean }) {
-  const splitClipsAtPlayhead = useTimelineStore(
-    (s) => s.splitClipsAtPlayhead,
-  );
   const setInPoint = useTimelineStore((s) => s.setInPoint);
   const setOutPoint = useTimelineStore((s) => s.setOutPoint);
-  const markRangeAtPlayhead = useTimelineStore(
-    (s) => s.markRangeAtPlayhead,
-  );
   const trimToRange = useTimelineStore((s) => s.trimToRange);
   const deleteRange = useTimelineStore((s) => s.deleteRange);
   const clearInOutPoints = useTimelineStore((s) => s.clearInOutPoints);
@@ -144,14 +139,7 @@ function ToolbarRow({ detached }: { detached: boolean }) {
         icon={<ScissorsIcon className="size-4" />}
         label="Split"
         title="Split at playhead (S)"
-        onClick={() => {
-          const s = useTimelineStore.getState();
-          splitClipsAtPlayhead(
-            s.selectedClipIds.length > 0
-              ? { onlySelectedIds: s.selectedClipIds }
-              : undefined,
-          );
-        }}
+        onClick={splitSelection}
       />
       <ToolbarButton
         icon={<SquareDashedIcon className="size-4" />}
@@ -172,20 +160,20 @@ function ToolbarRow({ detached }: { detached: boolean }) {
       <ToolbarButton
         icon={<BracketsIcon className="size-4" />}
         label="Mark Range"
-        title="Mark a small range around the playhead"
-        onClick={markRangeAtPlayhead}
+        title="Mark the selected clips, or a small range around the playhead (X)"
+        onClick={markSelectionRange}
       />
       <ToolbarButton
         icon={<CropIcon className="size-4" />}
         label="Trim to range"
-        title="Keep the in/out range, drop everything else"
+        title="Keep the in/out range, drop everything else (⇧')"
         onClick={trimToRange}
         disabled={!hasRange}
       />
       <ToolbarButton
         icon={<Trash2Icon className="size-4" />}
         label="Delete range"
-        title="Delete what's in the range and close the gap"
+        title="Delete what's in the range and close the gap (')"
         onClick={deleteRange}
         disabled={!hasBothMarks}
       />
@@ -193,7 +181,7 @@ function ToolbarRow({ detached }: { detached: boolean }) {
         <ToolbarButton
           icon={<XSquareIcon className="size-4" />}
           label="Clear"
-          title="Clear in/out range"
+          title="Clear in/out range (⇧X)"
           onClick={clearInOutPoints}
           subtle
         />

@@ -6,11 +6,26 @@ import {
 } from '../lib/clipBounds';
 import { computeTimelineDuration } from '../lib/clipRate';
 import { newId } from '../lib/ids';
+import {
+  closeGaps as closeGapsOp,
+  insertAssetClip,
+  joinClips as joinClipsOp,
+  moveClipsBy,
+  placeClip,
+  reorderClip as reorderClipOp,
+  type ReorderTarget,
+  removeClips as removeClipsOp,
+  removeMediaAsset as removeMediaAssetOp,
+  removeUnusedMedia as removeUnusedMediaOp,
+  rippleRemoveClips,
+} from '../lib/timelineOps';
 import { serializeProject } from '../serialization/project';
 import type {
   AnyClip,
   AudioClip,
   ClipId,
+  MediaAsset,
+  MediaId,
   OverlayId,
   TextOverlay,
   TrackId,
@@ -101,9 +116,34 @@ export interface TimelineActions {
   /** Toggle (or set) the solo flag on a track. */
   setTrackSolo: (trackId: TrackId, solo: boolean) => void;
 
+  /** Append imported assets to the media library (no timeline change). */
+  addMediaAssets: (assets: MediaAsset[]) => void;
+  /**
+   * Rename a library asset. Clips still carrying the asset's old name
+   * follow the rename; clips the user renamed separately keep theirs.
+   */
+  renameMediaAsset: (mediaId: MediaId, name: string) => void;
+  /** Remove an asset from the library AND every clip that uses it. */
+  removeMediaAsset: (mediaId: MediaId) => void;
+  /** Remove every library asset not used by any clip. */
+  removeUnusedMedia: () => void;
+  /**
+   * Place a full-length clip of a library asset on the timeline (see
+   * `insertAssetClip` for the track/slot fallback). Selects the new
+   * clip and returns its id, or null when nothing could be placed.
+   */
+  insertMediaClip: (
+    mediaId: MediaId,
+    opts: { trackId?: TrackId; startOffset: number },
+  ) => ClipId | null;
+
   addVideoClip: (trackId: TrackId, clip: VideoClip) => void;
   addAudioClip: (trackId: TrackId, clip: AudioClip) => void;
   removeClip: (clipId: ClipId) => void;
+  /** Delete several clips at once (one undo step). */
+  removeClips: (clipIds: ClipId[]) => void;
+  /** Ripple-delete several clips; each track closes its own gaps. */
+  rippleDeleteClips: (clipIds: ClipId[]) => void;
   /**
    * Delete a clip AND pull every subsequent clip on the same track
    * left by the deleted clip's timeline duration. Closes the gap so
@@ -111,10 +151,11 @@ export interface TimelineActions {
    */
   rippleDeleteClip: (clipId: ClipId) => void;
   /**
-   * Reposition a clip. `startOffset` is clamped against same-track
-   * neighbors. When `targetTrackId` is provided AND points to a
-   * different track OF THE SAME TYPE, the clip moves there and is
-   * clamped against the target track's neighbors instead.
+   * Reposition a clip. An ungrouped clip lands in the free slot
+   * nearest `startOffset` — so it can be dragged past neighbors —
+   * on its own track or, when `targetTrackId` names a different track
+   * OF THE SAME TYPE, on that one. A grouped clip moves with its
+   * group on its own track and is clamped against neighbors.
    */
   moveClip: (
     clipId: ClipId,
@@ -128,6 +169,38 @@ export interface TimelineActions {
    * Out-of-range values are clamped by the caller — the store trusts inputs.
    */
   trimClip: (clipId: ClipId, trimStart: number, trimEnd: number) => void;
+
+  /**
+   * Rearrange: move a clip to directly before / after another clip,
+   * closing its old spot and pushing later clips to make room.
+   */
+  reorderClip: (
+    clipId: ClipId,
+    target: Pick<ReorderTarget, 'trackId' | 'targetClipId' | 'side'>,
+  ) => void;
+
+  /**
+   * Shift several clips (plus their group-mates) by `delta` seconds in
+   * lockstep, clamped so none overlaps a non-moving clip.
+   */
+  moveClips: (clipIds: ClipId[], delta: number) => void;
+
+  /**
+   * Trim the start (`'start'`) or end (`'end'`) of clips to the
+   * playhead. Targets the selected clips the playhead crosses, or
+   * every clip it crosses when none is selected. `ripple` shifts
+   * downstream same-track clips to close / open the space.
+   */
+  trimClipsToPlayhead: (side: 'start' | 'end', ripple: boolean) => void;
+
+  /**
+   * Join clips that are continuous pieces of the same source back
+   * into one (the inverse of split). No-op unless `checkJoin` passes.
+   */
+  joinClips: (clipIds: ClipId[]) => void;
+
+  /** Close the gaps between clips on each listed track. */
+  closeGaps: (trackIds: TrackId[]) => void;
 
   /**
    * Drag the LEFT trim handle to a new `trimStart`. The clip's
@@ -399,6 +472,7 @@ function buildBlankProject(name: string): VideoProject {
       { id: newId(), type: 'audio', clips: [] },
     ],
     overlays: [],
+    media: [],
   };
 }
 
@@ -541,6 +615,71 @@ export const useTimelineStore = create<TimelineStore>()(
         return { currentProject: next };
       }),
 
+    addMediaAssets: (assets) =>
+      set((state) => {
+        if (!state.currentProject || assets.length === 0) return state;
+        return {
+          currentProject: {
+            ...state.currentProject,
+            media: [...state.currentProject.media, ...assets],
+          },
+        };
+      }),
+
+    renameMediaAsset: (mediaId, name) =>
+      set((state) => {
+        const project = state.currentProject;
+        if (!project) return state;
+        const trimmed = name.trim();
+        const asset = project.media.find((m) => m.id === mediaId);
+        if (!asset || !trimmed || trimmed === asset.name) return state;
+        return {
+          currentProject: {
+            ...project,
+            media: project.media.map((m) =>
+              m.id === mediaId ? { ...m, name: trimmed } : m,
+            ),
+            tracks: project.tracks.map((t) => ({
+              ...t,
+              clips: t.clips.map((c) =>
+                c.mediaId === mediaId && c.name === asset.name
+                  ? { ...c, name: trimmed }
+                  : c,
+              ),
+            })),
+          },
+        };
+      }),
+
+    removeMediaAsset: (mediaId) =>
+      set((state) => {
+        if (!state.currentProject) return state;
+        const next = removeMediaAssetOp(state.currentProject, mediaId);
+        return { currentProject: next, ...pruneSelection(state, next) };
+      }),
+
+    removeUnusedMedia: () =>
+      set((state) => {
+        if (!state.currentProject) return state;
+        const next = removeUnusedMediaOp(state.currentProject);
+        return next === state.currentProject ? state : { currentProject: next };
+      }),
+
+    insertMediaClip: (mediaId, opts) => {
+      const project = get().currentProject;
+      const asset = project?.media.find((m) => m.id === mediaId);
+      if (!project || !asset) return null;
+      const result = insertAssetClip(project, asset, opts);
+      if (!result) return null;
+      set({
+        currentProject: result.project,
+        selectedClipId: result.clip.id,
+        selectedClipIds: [result.clip.id],
+        selectedOverlayId: null,
+      });
+      return result.clip.id;
+    },
+
     addVideoClip: (trackId, clip) =>
       set((state) => {
         if (!state.currentProject) return state;
@@ -571,192 +710,115 @@ export const useTimelineStore = create<TimelineStore>()(
         };
       }),
 
-    removeClip: (clipId) =>
+    removeClip: (clipId) => get().removeClips([clipId]),
+
+    removeClips: (clipIds) =>
       set((state) => {
-        if (!state.currentProject) return state;
-        return {
-          currentProject: {
-            ...state.currentProject,
-            tracks: state.currentProject.tracks.map((track) => ({
-              ...track,
-              clips: track.clips.filter((c) => c.id !== clipId),
-            })),
-          },
-          selectedClipId:
-            state.selectedClipId === clipId ? null : state.selectedClipId,
-          selectedClipIds: state.selectedClipIds.filter((id) => id !== clipId),
-        };
+        if (!state.currentProject || clipIds.length === 0) return state;
+        const next = removeClipsOp(state.currentProject, new Set(clipIds));
+        return { currentProject: next, ...pruneSelection(state, next) };
       }),
 
-    rippleDeleteClip: (clipId) =>
+    rippleDeleteClip: (clipId) => get().rippleDeleteClips([clipId]),
+
+    rippleDeleteClips: (clipIds) =>
       set((state) => {
-        if (!state.currentProject) return state;
-        const located = (() => {
-          for (const track of state.currentProject.tracks) {
-            for (const clip of track.clips) {
-              if (clip.id === clipId) return { track, clip };
-            }
-          }
-          return null;
-        })();
-        if (!located) return state;
-        const { track: hostTrack, clip: removed } = located;
-        const removedEnd = removed.startOffset + removed.duration;
-        // Shift amount = the deleted clip's timeline span. Any same-
-        // track clip starting at or after `removed.startOffset`
-        // shifts left by that span; clips ending before the deletion
-        // point are anchored. We don't push earlier neighbors past
-        // their previous-neighbor boundary because there's no later
-        // content arriving from that direction.
-        return {
-          currentProject: {
-            ...state.currentProject,
-            tracks: state.currentProject.tracks.map((track) => {
-              if (track.id !== hostTrack.id) return track;
-              return {
-                ...track,
-                clips: track.clips
-                  .filter((c) => c.id !== clipId)
-                  .map((c) => {
-                    if (c.startOffset >= removedEnd) {
-                      // Clamp to >= 0 in case earlier overlapping
-                      // legacy data would push this clip negative.
-                      return {
-                        ...c,
-                        startOffset: Math.max(0, c.startOffset - removed.duration),
-                      };
-                    }
-                    return c;
-                  }),
-              };
-            }),
-          },
-          selectedClipId:
-            state.selectedClipId === clipId ? null : state.selectedClipId,
-          selectedClipIds: state.selectedClipIds.filter((id) => id !== clipId),
-        };
+        if (!state.currentProject || clipIds.length === 0) return state;
+        const next = rippleRemoveClips(state.currentProject, new Set(clipIds));
+        return { currentProject: next, ...pruneSelection(state, next) };
       }),
 
     moveClip: (clipId, startOffset, targetTrackId) =>
       set((state) => {
-        if (!state.currentProject) return state;
-        const clip = findClip(state.currentProject, clipId);
+        const project = state.currentProject;
+        if (!project) return state;
+        const clip = findClip(project, clipId);
         if (!clip) return state;
-        const sourceTrack = state.currentProject.tracks.find((t) =>
-          t.clips.some((c) => c.id === clipId),
+        const crossTrack =
+          targetTrackId !== undefined && targetTrackId !== clip.trackId;
+        // Grouped clips move as a unit on their own tracks; jumping
+        // into a free slot would break the group's relative timing.
+        const next =
+          clip.groupId && !crossTrack
+            ? moveClipsBy(project, [clipId], startOffset - clip.startOffset)
+            : placeClip(project, clipId, startOffset, targetTrackId);
+        return next === project ? state : { currentProject: next };
+      }),
+
+    reorderClip: (clipId, target) =>
+      set((state) => {
+        const project = state.currentProject;
+        if (!project) return state;
+        const next = reorderClipOp(project, clipId, target);
+        return next === project ? state : { currentProject: next };
+      }),
+
+    moveClips: (clipIds, delta) =>
+      set((state) => {
+        const project = state.currentProject;
+        if (!project) return state;
+        const next = moveClipsBy(project, clipIds, delta);
+        return next === project ? state : { currentProject: next };
+      }),
+
+    trimClipsToPlayhead: (side, ripple) => {
+      const state = get();
+      const project = state.currentProject;
+      if (!project) return;
+      const playhead = state.playheadPosition;
+      const crossed = project.tracks.flatMap((t) =>
+        t.clips.filter(
+          (c) =>
+            playhead > c.startOffset + MIN_CLIP_DURATION / 2 &&
+            playhead < c.startOffset + c.duration - MIN_CLIP_DURATION / 2,
+        ),
+      );
+      const selected = new Set(state.selectedClipIds);
+      const targets =
+        selected.size > 0 ? crossed.filter((c) => selected.has(c.id)) : crossed;
+      for (const clip of targets) {
+        // Playhead (timeline) → source time inside this clip.
+        const sourceAt =
+          clip.trimStart + (playhead - clip.startOffset) * (clip.playbackRate ?? 1);
+        const s = get();
+        if (side === 'start') {
+          if (ripple) s.rippleTrimLeft(clip.id, sourceAt);
+          else s.trimClipLeft(clip.id, sourceAt);
+        } else if (ripple) {
+          s.rippleTrimRight(clip.id, sourceAt);
+        } else {
+          s.trimClipRight(clip.id, sourceAt);
+        }
+      }
+      // A ripple start-trim pulls the trimmed clip's content left
+      // under a fixed start, so park the playhead on the new edit
+      // point — like Premiere's Q.
+      if (ripple && side === 'start' && targets.length > 0) {
+        const first = targets.reduce((a, b) =>
+          a.startOffset < b.startOffset ? a : b,
         );
-        if (!sourceTrack) return state;
+        get().updatePlayhead(first.startOffset);
+      }
+    },
 
-        const targetTrack = targetTrackId
-          ? state.currentProject.tracks.find((t) => t.id === targetTrackId)
-          : sourceTrack;
-        // Reject moves to a missing track or to a track of a
-        // different kind — the data model doesn't allow audio clips
-        // on video tracks or vice versa.
-        if (!targetTrack || targetTrack.type !== sourceTrack.type) {
-          return state;
-        }
-
-        if (targetTrack.id === sourceTrack.id) {
-          // Same-track move: existing path (clamp against neighbors).
-          const requestedDelta = startOffset - clip.startOffset;
-          const range = computeDeltaRange(
-            clip,
-            'move',
-            state.currentProject,
-          );
-          const primaryDelta = clampDelta(range, requestedDelta);
-
-          // Group propagation: if this clip is grouped, each other
-          // member is independently neighbor-clamped, and the
-          // smallest signed delta wins so relative spacing is kept.
-          let effectiveDelta = primaryDelta;
-          const groupMembers: AnyClip[] = [];
-          if (clip.groupId) {
-            for (const t of state.currentProject.tracks) {
-              for (const c of t.clips) {
-                if (c.groupId === clip.groupId) groupMembers.push(c);
-              }
-            }
-            for (const member of groupMembers) {
-              if (member.id === clipId) continue;
-              const memberRange = computeDeltaRange(
-                member,
-                'move',
-                state.currentProject,
-              );
-              const allowed = clampDelta(memberRange, requestedDelta);
-              // Pick the smaller-magnitude delta — preserves
-              // relative timing even if a single member is blocked.
-              if (Math.sign(allowed) !== Math.sign(effectiveDelta)) {
-                effectiveDelta = 0;
-                break;
-              }
-              if (Math.abs(allowed) < Math.abs(effectiveDelta)) {
-                effectiveDelta = allowed;
-              }
-            }
-          }
-
-          const memberIds = new Set(groupMembers.map((m) => m.id));
-          return {
-            currentProject: {
-              ...state.currentProject,
-              tracks: state.currentProject.tracks.map((track) => ({
-                ...track,
-                clips: track.clips.map((c) => {
-                  if (c.id === clipId) {
-                    return { ...c, startOffset: c.startOffset + effectiveDelta };
-                  }
-                  if (memberIds.has(c.id)) {
-                    return { ...c, startOffset: c.startOffset + effectiveDelta };
-                  }
-                  return c;
-                }),
-              })),
-            },
-          };
-        }
-
-        // Cross-track move: clamp against the TARGET track's
-        // existing clips (the source track's neighbor of `clip` is
-        // irrelevant once the clip leaves it).
-        const clipEnd = startOffset + clip.duration;
-        let prevEnd = 0;
-        let nextStart = Infinity;
-        for (const c of targetTrack.clips) {
-          const cEnd = c.startOffset + c.duration;
-          if (cEnd <= startOffset) {
-            if (cEnd > prevEnd) prevEnd = cEnd;
-          } else if (c.startOffset >= clipEnd) {
-            if (c.startOffset < nextStart) nextStart = c.startOffset;
-          }
-        }
-        const safeStart = Math.max(
-          prevEnd,
-          Math.min(startOffset, nextStart - clip.duration),
-        );
-        const movedClip = {
-          ...clip,
-          trackId: targetTrack.id,
-          startOffset: safeStart,
-        };
+    joinClips: (clipIds) =>
+      set((state) => {
+        if (!state.currentProject) return state;
+        const result = joinClipsOp(state.currentProject, clipIds);
+        if (!result) return state;
         return {
-          currentProject: {
-            ...state.currentProject,
-            tracks: state.currentProject.tracks.map((t) => {
-              if (t.id === sourceTrack.id) {
-                return {
-                  ...t,
-                  clips: t.clips.filter((c) => c.id !== clipId),
-                };
-              }
-              if (t.id === targetTrack.id) {
-                return { ...t, clips: [...t.clips, movedClip] };
-              }
-              return t;
-            }),
-          },
+          currentProject: result.project,
+          selectedClipId: result.joinedId,
+          selectedClipIds: [result.joinedId],
+          selectedOverlayId: null,
+        };
+      }),
+
+    closeGaps: (trackIds) =>
+      set((state) => {
+        if (!state.currentProject || trackIds.length === 0) return state;
+        return {
+          currentProject: closeGapsOp(state.currentProject, new Set(trackIds)),
         };
       }),
 
@@ -1886,4 +1948,21 @@ function fits(clips: AnyClip[], start: number, duration: number): boolean {
     if (!(end <= c.startOffset || start >= cEnd)) return false;
   }
   return true;
+}
+
+/** Drop selection ids that no longer exist in `project`. */
+function pruneSelection(
+  state: TimelineState,
+  project: VideoProject,
+): Pick<TimelineState, 'selectedClipId' | 'selectedClipIds'> {
+  const alive = new Set<ClipId>();
+  for (const t of project.tracks) for (const c of t.clips) alive.add(c.id);
+  const selectedClipIds = state.selectedClipIds.filter((id) => alive.has(id));
+  return {
+    selectedClipIds,
+    selectedClipId:
+      state.selectedClipId && alive.has(state.selectedClipId)
+        ? state.selectedClipId
+        : (selectedClipIds[selectedClipIds.length - 1] ?? null),
+  };
 }

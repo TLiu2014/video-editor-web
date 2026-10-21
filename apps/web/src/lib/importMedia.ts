@@ -1,5 +1,6 @@
 import { newId } from './ids';
-import type { AudioClip, TrackId, VideoClip } from '../types/timeline';
+import { useTimelineStore } from '../store/useTimelineStore';
+import type { MediaAsset } from '../types/timeline';
 
 interface MediaProbe {
   duration: number;
@@ -100,48 +101,45 @@ export function isAudioFile(file: File): boolean {
   return file.type.startsWith('audio/');
 }
 
-export async function importVideoFile(
-  file: File,
-  trackId: TrackId,
-  startOffset: number,
-): Promise<VideoClip> {
+/**
+ * Probe a dropped / picked file and turn it into a media library
+ * asset. Returns null for files that are neither video nor audio.
+ */
+export async function importMediaAsset(file: File): Promise<MediaAsset | null> {
+  const kind = isVideoFile(file) ? 'video' : isAudioFile(file) ? 'audio' : null;
+  if (!kind) return null;
   const { duration, hasAudio } = await probeMedia(file);
   return {
     id: newId(),
-    kind: 'video',
+    kind,
     name: file.name,
     file,
-    startOffset,
-    trimStart: 0,
-    trimEnd: duration,
     duration,
-    sourceDuration: duration,
     hasAudio,
-    fadeIn: 0,
-    fadeOut: 0,
-    trackId,
+    importedAt: Date.now(),
   };
 }
 
-export async function importAudioFile(
-  file: File,
-  trackId: TrackId,
-  startOffset: number,
-): Promise<AudioClip> {
-  const { duration } = await probeMedia(file);
-  return {
-    id: newId(),
-    kind: 'audio',
-    name: file.name,
-    file,
-    startOffset,
-    trimStart: 0,
-    trimEnd: duration,
-    duration,
-    sourceDuration: duration,
-    fadeIn: 0,
-    fadeOut: 0,
-    trackId,
-    volume: 1,
-  };
+/**
+ * Import many files into the current project's media library. Files
+ * that fail to probe or aren't media are counted as skipped.
+ */
+export async function importFilesToLibrary(
+  files: File[],
+): Promise<{ assets: MediaAsset[]; skipped: number }> {
+  const assets: MediaAsset[] = [];
+  let skipped = 0;
+  for (const file of files) {
+    try {
+      const asset = await importMediaAsset(file);
+      if (asset) assets.push(asset);
+      else skipped += 1;
+    } catch {
+      skipped += 1;
+    }
+  }
+  if (assets.length > 0) {
+    useTimelineStore.getState().addMediaAssets(assets);
+  }
+  return { assets, skipped };
 }

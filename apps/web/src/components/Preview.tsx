@@ -347,7 +347,7 @@ function PreviewEmptyOverlay() {
   return (
     <button
       type="button"
-      onClick={triggerMediaPicker}
+      onClick={() => triggerMediaPicker({ placeOnTimeline: true })}
       className="absolute inset-0 flex cursor-pointer flex-col items-center justify-center gap-3 bg-transparent text-text-muted transition hover:bg-chrome/40 hover:text-text-secondary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       title="Import media (click anywhere)"
     >

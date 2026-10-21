@@ -18,10 +18,10 @@ export function EmptyState() {
   // OS file picker. Zustand's set() is synchronous, so by the time
   // the user selects a file, the picker handler in Toolbar.tsx
   // (which reads currentProject via getState()) sees a real project
-  // to attach the clip to.
+  // to import into — and, on this path only, to place clips on.
   const handleStartEditing = () => {
     createProject('Untitled Project');
-    triggerMediaPicker();
+    triggerMediaPicker({ placeOnTimeline: true });
   };
 
   return (

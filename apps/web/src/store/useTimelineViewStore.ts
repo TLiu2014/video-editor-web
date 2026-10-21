@@ -36,6 +36,26 @@ export interface TimelineViewState {
    * page-coordinate origin.
    */
   editToolbarFloat: { x: number; y: number } | null;
+  /**
+   * Live horizontal offset of a multi-clip move drag. The clip under
+   * the pointer owns the drag; every other clip in `ids` reads this to
+   * follow along visually until the store commits the move.
+   */
+  moveDragPreview: { ids: ReadonlySet<string>; deltaPx: number } | null;
+  /**
+   * Clip context menu (right-click) anchor in page coordinates, or
+   * null when closed. The menu acts on the current selection.
+   */
+  clipContextMenu: { x: number; y: number } | null;
+  /**
+   * Insertion marker for a reorder drag (a clip dragged onto another
+   * clip): the track and timeline second where it will be inserted.
+   */
+  reorderMarker: { trackId: string; at: number } | null;
+  /** Which panel the left sidebar shows. */
+  sidebarTab: 'media' | 'clips';
+  /** Library asset to scroll to and flash (set by "Show in Media"). */
+  highlightedMediaId: string | null;
 }
 
 export interface TimelineViewActions {
@@ -46,6 +66,14 @@ export interface TimelineViewActions {
   setSnapPosition: (position: number | null) => void;
   setPreviewContentWidth: (px: number) => void;
   setEditToolbarFloat: (pos: { x: number; y: number } | null) => void;
+  setMoveDragPreview: (
+    preview: { ids: ReadonlySet<string>; deltaPx: number } | null,
+  ) => void;
+  setClipContextMenu: (pos: { x: number; y: number } | null) => void;
+  setReorderMarker: (marker: { trackId: string; at: number } | null) => void;
+  setSidebarTab: (tab: 'media' | 'clips') => void;
+  /** Open the Media tab with `mediaId` highlighted. */
+  revealMedia: (mediaId: string | null) => void;
 }
 
 export type TimelineViewStore = TimelineViewState & TimelineViewActions;
@@ -56,6 +84,11 @@ export const useTimelineViewStore = create<TimelineViewStore>()(
     snapPosition: null,
     previewContentWidth: 0,
     editToolbarFloat: null,
+    moveDragPreview: null,
+    clipContextMenu: null,
+    reorderMarker: null,
+    sidebarTab: 'media',
+    highlightedMediaId: null,
 
     zoomIn: () =>
       set((s) => ({
@@ -71,6 +104,16 @@ export const useTimelineViewStore = create<TimelineViewStore>()(
     setSnapPosition: (position) => set({ snapPosition: position }),
     setPreviewContentWidth: (px) => set({ previewContentWidth: px }),
     setEditToolbarFloat: (pos) => set({ editToolbarFloat: pos }),
+    setMoveDragPreview: (preview) => set({ moveDragPreview: preview }),
+    setClipContextMenu: (pos) => set({ clipContextMenu: pos }),
+    setReorderMarker: (marker) => set({ reorderMarker: marker }),
+    setSidebarTab: (tab) => set({ sidebarTab: tab }),
+    revealMedia: (mediaId) =>
+      set(
+        mediaId
+          ? { sidebarTab: 'media', highlightedMediaId: mediaId }
+          : { highlightedMediaId: null },
+      ),
   })),
 );
 

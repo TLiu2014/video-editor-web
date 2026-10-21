@@ -1,13 +1,19 @@
 import {
+  ArrowLeftToLineIcon,
+  ArrowRightToLineIcon,
+  BetweenHorizontalStartIcon,
+  BrushCleaningIcon,
   CaptionsIcon,
   CircleDotIcon,
   ClipboardCopyIcon,
   ClipboardPasteIcon,
+  CombineIcon,
   CropIcon,
   DownloadIcon,
   FilmIcon,
   FolderOpenIcon,
   FolderPlusIcon,
+  KeyboardIcon,
   Link2Icon,
   Link2OffIcon,
   MoonIcon,
@@ -30,8 +36,19 @@ import {
   ZoomOutIcon,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
+import {
+  closeGapsForSelection,
+  deleteSelection,
+  joinBlocker,
+  joinSelection,
+  markSelectionRange,
+  cutSelection,
+  splitSelection,
+  trimSelectionToPlayhead,
+} from '../lib/editActions';
 import { newId } from '../lib/ids';
 import { computeProjectDuration } from '../lib/projectMetrics';
+import { useDialogsStore } from '../store/useDialogsStore';
 import { useHistoryStore } from '../store/useHistoryStore';
 import { useThemeStore } from '../store/useThemeStore';
 import { useTimelineStore } from '../store/useTimelineStore';
@@ -73,6 +90,9 @@ export function useCommands(triggers: {
   const inPoint = useTimelineStore((s) => s.inPoint);
   const outPoint = useTimelineStore((s) => s.outPoint);
   const hasRange = inPoint !== null || outPoint !== null;
+  // Recomputed each render; `project` / `selectedClipIds` subscriptions
+  // above re-render the palette whenever the answer could change.
+  const joinReason = joinBlocker();
   const canUndo = useHistoryStore((s) => s.past.length > 0);
   const canRedo = useHistoryStore((s) => s.future.length > 0);
   const theme = useThemeStore((s) => s.theme);
@@ -127,6 +147,7 @@ export function useCommands(triggers: {
       label: 'Import Media…',
       keywords: ['add', 'video', 'audio', 'upload'],
       icon: <FilmIcon />,
+      shortcut: '⌘I',
       disabled: !hasProject,
       action: triggers.pickMedia,
     },
@@ -150,6 +171,7 @@ export function useCommands(triggers: {
       label: 'Export Video…',
       keywords: ['render', 'mp4', 'download'],
       icon: <DownloadIcon />,
+      shortcut: '⌘E',
       disabled: !hasClips,
       action: triggers.openExport,
     },
@@ -158,6 +180,7 @@ export function useCommands(triggers: {
       label: 'Add Text Overlay',
       keywords: ['caption', 'title', 'overlay'],
       icon: <TypeIcon />,
+      shortcut: 'T',
       disabled: !hasProject,
       action: () => {
         const s = useTimelineStore.getState();
@@ -190,14 +213,65 @@ export function useCommands(triggers: {
       icon: <ScissorsIcon />,
       shortcut: 'S',
       disabled: !hasProject,
-      action: () => {
-        const s = useTimelineStore.getState();
-        s.splitClipsAtPlayhead(
-          s.selectedClipIds.length > 0
-            ? { onlySelectedIds: s.selectedClipIds }
-            : undefined,
-        );
-      },
+      action: splitSelection,
+    },
+    {
+      id: 'trim-start-to-playhead',
+      label: 'Trim Clip Start to Playhead',
+      keywords: ['trim', 'in', 'head', 'q'],
+      icon: <ArrowLeftToLineIcon />,
+      shortcut: 'Q',
+      disabled: !hasClips,
+      action: () => trimSelectionToPlayhead('start', false),
+    },
+    {
+      id: 'trim-end-to-playhead',
+      label: 'Trim Clip End to Playhead',
+      keywords: ['trim', 'out', 'tail', 'w'],
+      icon: <ArrowRightToLineIcon />,
+      shortcut: 'W',
+      disabled: !hasClips,
+      action: () => trimSelectionToPlayhead('end', false),
+    },
+    {
+      id: 'ripple-trim-start-to-playhead',
+      label: 'Ripple Trim Clip Start to Playhead',
+      keywords: ['trim', 'ripple', 'in', 'head'],
+      icon: <ArrowLeftToLineIcon />,
+      shortcut: '⇧Q',
+      disabled: !hasClips,
+      action: () => trimSelectionToPlayhead('start', true),
+    },
+    {
+      id: 'ripple-trim-end-to-playhead',
+      label: 'Ripple Trim Clip End to Playhead',
+      keywords: ['trim', 'ripple', 'out', 'tail'],
+      icon: <ArrowRightToLineIcon />,
+      shortcut: '⇧W',
+      disabled: !hasClips,
+      action: () => trimSelectionToPlayhead('end', true),
+    },
+    {
+      id: 'join-clips',
+      label: 'Join Clips',
+      keywords: ['merge', 'heal', 'combine', 'stitch', 'through edit'],
+      icon: <CombineIcon />,
+      shortcut: '⌘J',
+      hint: joinReason ?? undefined,
+      disabled: joinReason !== null,
+      action: joinSelection,
+    },
+    {
+      id: 'close-gaps',
+      label: 'Close Gaps',
+      keywords: ['gap', 'remove space', 'pack', 'ripple'],
+      icon: <BetweenHorizontalStartIcon />,
+      hint:
+        selectedClipIds.length > 0
+          ? "On the selected clips' tracks"
+          : 'On every track',
+      disabled: !hasClips,
+      action: closeGapsForSelection,
     },
     {
       id: 'delete',
@@ -206,23 +280,33 @@ export function useCommands(triggers: {
       icon: <Trash2Icon />,
       shortcut: '⌫',
       disabled: !canDelete,
-      action: () => {
-        const s = useTimelineStore.getState();
-        if (s.selectedClipId) s.removeClip(s.selectedClipId);
-        else if (s.selectedOverlayId) s.removeOverlay(s.selectedOverlayId);
-      },
+      action: () => deleteSelection(false),
     },
     {
       id: 'ripple-delete',
-      label: 'Ripple Delete Clip',
+      label: 'Ripple Delete Clips',
       keywords: ['remove', 'close gap', 'shift'],
       icon: <Trash2Icon />,
       shortcut: '⇧⌫',
-      disabled: !selectedClipId,
-      action: () => {
-        const s = useTimelineStore.getState();
-        if (s.selectedClipId) s.rippleDeleteClip(s.selectedClipId);
-      },
+      disabled: selectedClipIds.length === 0,
+      action: () => deleteSelection(true),
+    },
+    {
+      id: 'remove-unused-media',
+      label: 'Remove Unused Media',
+      keywords: ['library', 'bin', 'clean', 'purge'],
+      icon: <BrushCleaningIcon />,
+      disabled: !hasProject,
+      action: () => useTimelineStore.getState().removeUnusedMedia(),
+    },
+    {
+      id: 'cut-clips',
+      label: 'Cut Selected Clips',
+      keywords: ['clipboard', 'remove'],
+      icon: <ScissorsIcon />,
+      shortcut: '⌘X',
+      disabled: selectedClipIds.length === 0,
+      action: cutSelection,
     },
     {
       id: 'copy-clips',
@@ -276,6 +360,7 @@ export function useCommands(triggers: {
       label: 'Trim to In/Out Range',
       keywords: ['crop', 'range', 'cut'],
       icon: <CropIcon />,
+      shortcut: "⇧'",
       disabled: !hasRange,
       action: () => useTimelineStore.getState().trimToRange(),
     },
@@ -284,14 +369,34 @@ export function useCommands(triggers: {
       label: 'Clear In/Out Range',
       keywords: ['range', 'reset'],
       icon: <XSquareIcon />,
+      shortcut: '⇧X',
       disabled: !hasRange,
       action: () => useTimelineStore.getState().clearInOutPoints(),
+    },
+    {
+      id: 'mark-clip',
+      label: 'Mark Selected Clips (In/Out)',
+      keywords: ['range', 'in', 'out', 'mark clip'],
+      icon: <SquareDashedIcon />,
+      shortcut: 'X',
+      disabled: !hasProject,
+      action: markSelectionRange,
+    },
+    {
+      id: 'delete-range',
+      label: 'Delete In/Out Range (Close Gap)',
+      keywords: ['extract', 'range', 'remove', 'ripple'],
+      icon: <Trash2Icon />,
+      shortcut: "'",
+      disabled: inPoint === null || outPoint === null,
+      action: () => useTimelineStore.getState().deleteRange(),
     },
     {
       id: 'group-clips',
       label: 'Group Selected Clips',
       keywords: ['link', 'bind', 'multi'],
       icon: <Link2Icon />,
+      shortcut: '⌘G',
       disabled: !canGroup,
       action: () => {
         const s = useTimelineStore.getState();
@@ -303,6 +408,7 @@ export function useCommands(triggers: {
       label: 'Ungroup Selected Clips',
       keywords: ['unlink', 'unbind'],
       icon: <Link2OffIcon />,
+      shortcut: '⇧⌘G',
       disabled: !canUngroup,
       action: () => {
         const s = useTimelineStore.getState();
@@ -404,6 +510,7 @@ export function useCommands(triggers: {
       label: 'Go to Start',
       keywords: ['rewind', 'beginning'],
       icon: <SkipBackIcon />,
+      shortcut: 'Home',
       disabled: !hasProject,
       action: () => useTimelineStore.getState().updatePlayhead(0),
     },
@@ -412,9 +519,18 @@ export function useCommands(triggers: {
       label: 'Go to End',
       keywords: ['forward'],
       icon: <SkipForwardIcon />,
+      shortcut: 'End',
       disabled: !hasProject,
       action: () =>
         useTimelineStore.getState().updatePlayhead(projectDuration),
+    },
+    {
+      id: 'keyboard-shortcuts',
+      label: 'Keyboard Shortcuts',
+      keywords: ['keys', 'help', 'hotkeys', 'bindings'],
+      icon: <KeyboardIcon />,
+      shortcut: '?',
+      action: () => useDialogsStore.getState().setShortcuts(true),
     },
     {
       id: 'undo',

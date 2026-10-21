@@ -13,8 +13,15 @@ import {
   findNearestTarget,
 } from '../../lib/snapping';
 import { computeProjectDuration } from '../../lib/projectMetrics';
+import {
+  expandWithGroups,
+  findReorderTarget,
+  moveDeltaRange,
+  type ReorderTarget,
+} from '../../lib/timelineOps';
 import { useTimelineStore } from '../../store/useTimelineStore';
 import {
+  getPixelsPerSecond,
   useTimelineViewStore,
   usePixelsPerSecond,
 } from '../../store/useTimelineViewStore';
@@ -47,11 +54,18 @@ interface DragState {
   startY: number;
   moved: boolean;
   shiftKey: boolean;
+  /**
+   * Clips that travel with this one on a 'move' drag: the whole
+   * selection when this clip is part of a multi-selection, plus any
+   * group-mates. A set of one means a free single-clip move.
+   */
+  movingIds: ReadonlySet<string>;
 }
 
 export function Clip({ clip }: { clip: AnyClip }) {
   const pps = usePixelsPerSecond();
   const moveClip = useTimelineStore((s) => s.moveClip);
+  const moveClips = useTimelineStore((s) => s.moveClips);
   const trimClipLeft = useTimelineStore((s) => s.trimClipLeft);
   const trimClipRight = useTimelineStore((s) => s.trimClipRight);
   const rippleTrimLeft = useTimelineStore((s) => s.rippleTrimLeft);
@@ -59,8 +73,18 @@ export function Clip({ clip }: { clip: AnyClip }) {
   const selectClip = useTimelineStore((s) => s.selectClip);
   const toggleClipSelection = useTimelineStore((s) => s.toggleClipSelection);
   const setSnapPosition = useTimelineViewStore((s) => s.setSnapPosition);
+  const setMoveDragPreview = useTimelineViewStore((s) => s.setMoveDragPreview);
+  const setClipContextMenu = useTimelineViewStore((s) => s.setClipContextMenu);
+  const setReorderMarker = useTimelineViewStore((s) => s.setReorderMarker);
+  const reorderClip = useTimelineStore((s) => s.reorderClip);
   const selected = useTimelineStore((s) =>
     s.selectedClipIds.includes(clip.id),
+  );
+  // Offset applied while ANOTHER clip leads a multi-clip move drag.
+  const followPx = useTimelineViewStore((s) =>
+    s.moveDragPreview && s.moveDragPreview.ids.has(clip.id)
+      ? s.moveDragPreview.deltaPx
+      : 0,
   );
 
   const dragRef = useRef<DragState | null>(null);
@@ -72,15 +96,29 @@ export function Clip({ clip }: { clip: AnyClip }) {
   const [deltaY, setDeltaY] = useState(0);
   const [mode, setMode] = useState<DragMode | null>(null);
 
+  // Trims work in source seconds, moves in timeline seconds; a clip
+  // at speed r covers r source-seconds per timeline-second.
+  const rate = clip.playbackRate ?? 1;
+  const pxToDelta = (m: DragMode, px: number) =>
+    m === 'move' ? px / pps : (px / pps) * rate;
+  const deltaToPx = (m: DragMode, d: number) =>
+    m === 'move' ? d * pps : (d / rate) * pps;
+
   const beginDrag = (e: React.PointerEvent<HTMLDivElement>, m: DragMode) => {
+    if (e.button !== 0) return;
     e.stopPropagation();
     e.currentTarget.setPointerCapture(e.pointerId);
+    const s = useTimelineStore.getState();
+    const project = s.currentProject;
+    const seed =
+      selected && s.selectedClipIds.length > 1 ? s.selectedClipIds : [clip.id];
     dragRef.current = {
       mode: m,
       startX: e.clientX,
       startY: e.clientY,
       moved: false,
       shiftKey: e.shiftKey,
+      movingIds: project ? expandWithGroups(project, seed) : new Set([clip.id]),
     };
     setMode(m);
     setDeltaPx(0);
@@ -101,8 +139,8 @@ export function Clip({ clip }: { clip: AnyClip }) {
         ? drag.mode
         : null;
     if (drag.shiftKey && trimMode) {
-      const deltaSec = resolveRippleDelta(clip, trimMode, rawPx / pps);
-      setDeltaPx(deltaSec * pps);
+      const d = resolveRippleDelta(clip, trimMode, pxToDelta(trimMode, rawPx));
+      setDeltaPx(deltaToPx(trimMode, d));
       setSnapPosition(null);
       return;
     }
@@ -110,16 +148,29 @@ export function Clip({ clip }: { clip: AnyClip }) {
     const { deltaSec, snapPosition } = resolveDelta(
       clip,
       drag.mode,
-      rawPx / pps,
+      pxToDelta(drag.mode, rawPx),
       SNAP_THRESHOLD_PX / pps,
       pps,
+      drag.movingIds,
     );
-    setDeltaPx(deltaSec * pps);
+    const px = deltaToPx(drag.mode, deltaSec);
+    setDeltaPx(px);
     setSnapPosition(snapPosition);
-    // Vertical follow is move-only — trim drags are constrained
-    // horizontally by design.
     if (drag.mode === 'move') {
-      setDeltaY(e.clientY - drag.startY);
+      if (drag.movingIds.size > 1) {
+        // Multi-clip moves stay on their tracks; others follow along.
+        setMoveDragPreview({ ids: drag.movingIds, deltaPx: px });
+      } else {
+        // Vertical follow is single-clip-move only — trim drags are
+        // horizontal by design.
+        setDeltaY(e.clientY - drag.startY);
+        // Pointer over another clip = reorder: show where it'll go.
+        const reorder = reorderTargetAt(clip.id, e);
+        setReorderMarker(
+          reorder ? { trackId: reorder.trackId, at: reorder.markerAt } : null,
+        );
+        if (reorder) setSnapPosition(null);
+      }
     }
   };
 
@@ -129,6 +180,8 @@ export function Clip({ clip }: { clip: AnyClip }) {
     e.currentTarget.releasePointerCapture(e.pointerId);
     dragRef.current = null;
     setSnapPosition(null);
+    setMoveDragPreview(null);
+    setReorderMarker(null);
 
     if (!drag.moved && drag.mode === 'move') {
       if (drag.shiftKey) {
@@ -136,9 +189,9 @@ export function Clip({ clip }: { clip: AnyClip }) {
         // without disturbing other selected clips.
         toggleClipSelection(clip.id);
       } else {
-        // Plain click: replace selection with this clip (or
-        // clear if already the sole selection).
-        selectClip(selected ? null : clip.id);
+        // Plain click: replace the selection with this clip.
+        // Clearing is done by clicking empty track space or Esc.
+        selectClip(clip.id);
       }
       setMode(null);
       setDeltaPx(0);
@@ -146,7 +199,7 @@ export function Clip({ clip }: { clip: AnyClip }) {
       return;
     }
     if (drag.moved) {
-      const rawSec = (e.clientX - drag.startX) / pps;
+      const rawPx = e.clientX - drag.startX;
       const trimMode: 'trim-left' | 'trim-right' | null =
         drag.mode === 'trim-left' || drag.mode === 'trim-right'
           ? drag.mode
@@ -154,28 +207,34 @@ export function Clip({ clip }: { clip: AnyClip }) {
       const isRippleTrim = drag.shiftKey && trimMode !== null;
       const deltaSec =
         isRippleTrim && trimMode
-          ? resolveRippleDelta(clip, trimMode, rawSec)
-          : resolveDelta(clip, drag.mode, rawSec, SNAP_THRESHOLD_PX / pps, pps)
-              .deltaSec;
-      if (drag.mode === 'move') {
-        // Detect a target track under the cursor for cross-track
-        // drops. Falls back to the original track when the cursor
-        // is over a different-type track, the gutter, or nothing.
-        const elAtCursor = document.elementFromPoint(e.clientX, e.clientY);
-        const targetTrackEl = elAtCursor?.closest(
-          '[data-track-id]',
-        ) as HTMLElement | null;
-        const targetTrackId = targetTrackEl?.dataset.trackId;
-        const targetTrackType = targetTrackEl?.dataset.trackType as
-          | 'video'
-          | 'audio'
-          | undefined;
-        const sameKind = targetTrackType === clip.kind;
-        moveClip(
-          clip.id,
-          clip.startOffset + deltaSec,
-          targetTrackId && sameKind ? targetTrackId : undefined,
-        );
+          ? resolveRippleDelta(clip, trimMode, pxToDelta(trimMode, rawPx))
+          : resolveDelta(
+              clip,
+              drag.mode,
+              pxToDelta(drag.mode, rawPx),
+              SNAP_THRESHOLD_PX / pps,
+              pps,
+              drag.movingIds,
+            ).deltaSec;
+      if (drag.mode === 'move' && drag.movingIds.size > 1) {
+        moveClips([...drag.movingIds], deltaSec);
+      } else if (drag.mode === 'move') {
+        const reorder = reorderTargetAt(clip.id, e);
+        if (reorder) {
+          // Dropped onto another clip: rearrange the sequence.
+          reorderClip(clip.id, reorder);
+        } else {
+          // Dropped in empty space: free move, on the track under
+          // the cursor when it's the same kind. The store resolves
+          // the drop to the nearest free slot, so the clip may settle
+          // into a gap next to where it was let go.
+          const under = pointerOnTimeline(e);
+          moveClip(
+            clip.id,
+            clip.startOffset + deltaSec,
+            under && under.trackType === clip.kind ? under.trackId : undefined,
+          );
+        }
       } else if (drag.mode === 'trim-left') {
         if (isRippleTrim) {
           rippleTrimLeft(clip.id, clip.trimStart + deltaSec);
@@ -195,6 +254,15 @@ export function Clip({ clip }: { clip: AnyClip }) {
     setDeltaY(0);
   };
 
+  const openContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Right-clicking outside the selection retargets it, like every
+    // desktop editor; inside it, the whole selection stays the target.
+    if (!selected) selectClip(clip.id);
+    setClipContextMenu({ x: e.clientX, y: e.clientY });
+  };
+
   const isVideo = clip.kind === 'video';
   const baseLeftPx = clip.startOffset * pps;
   const baseWidthPx = Math.max(2, clip.duration * pps);
@@ -210,7 +278,8 @@ export function Clip({ clip }: { clip: AnyClip }) {
   // For 'move', leave `left`/`width` at their base values and use a
   // CSS transform for both axes — that's GPU-cheap and lets the
   // clip escape the source-track div on the vertical axis.
-  const dragging = mode === 'move' && (deltaPx !== 0 || deltaY !== 0);
+  const dragging =
+    (mode === 'move' && (deltaPx !== 0 || deltaY !== 0)) || followPx !== 0;
 
   const visibleDurationSec = widthPx / pps;
 
@@ -220,6 +289,11 @@ export function Clip({ clip }: { clip: AnyClip }) {
       onPointerMove={updateDrag}
       onPointerUp={commit}
       onPointerCancel={commit}
+      onContextMenu={openContextMenu}
+      // The scroll container clears the selection on click; a click
+      // that started on a clip must not reach it, or selecting a clip
+      // is undone the moment the pointer is released.
+      onClick={(e) => e.stopPropagation()}
       className={clsx(
         'no-select group absolute top-1 bottom-1 cursor-grab overflow-hidden rounded-md border transition-shadow active:cursor-grabbing',
         isVideo
@@ -239,7 +313,13 @@ export function Clip({ clip }: { clip: AnyClip }) {
               zIndex: 30,
               willChange: 'transform',
             }
-          : undefined),
+          : followPx !== 0
+            ? {
+                transform: `translate3d(${followPx}px, 0, 0)`,
+                zIndex: 30,
+                willChange: 'transform',
+              }
+            : undefined),
         ...(clip.color
           ? { backgroundColor: withAlpha(clip.color, 0.9) }
           : undefined),
@@ -321,6 +401,46 @@ function TrimHandle({
 }
 
 /**
+ * Track row and timeline time under the pointer. Found by geometry,
+ * not `elementFromPoint`: during a drag the clip itself follows the
+ * cursor and sits on top, and its DOM parent is the SOURCE track — so
+ * a hit test would always report the track the drag started on.
+ */
+function pointerOnTimeline(e: React.PointerEvent<HTMLElement>): {
+  trackId: string;
+  trackType: 'video' | 'audio';
+  time: number;
+} | null {
+  const surface = e.currentTarget.closest(
+    '[data-timeline-surface]',
+  ) as HTMLElement | null;
+  if (!surface) return null;
+  const rows = surface.querySelectorAll<HTMLElement>('[data-track-id]');
+  for (const row of rows) {
+    const rect = row.getBoundingClientRect();
+    if (e.clientY >= rect.top && e.clientY < rect.bottom) {
+      const left = surface.getBoundingClientRect().left;
+      return {
+        trackId: row.dataset.trackId ?? '',
+        trackType: row.dataset.trackType === 'audio' ? 'audio' : 'video',
+        time: Math.max(0, (e.clientX - left) / getPixelsPerSecond()),
+      };
+    }
+  }
+  return null;
+}
+
+function reorderTargetAt(
+  clipId: string,
+  e: React.PointerEvent<HTMLElement>,
+): ReorderTarget | null {
+  const project = useTimelineStore.getState().currentProject;
+  const under = pointerOnTimeline(e);
+  if (!project || !under) return null;
+  return findReorderTarget(project, clipId, under.trackId, under.time);
+}
+
+/**
  * Combine the data-model / neighbor clamp with snap-to-target
  * behavior. Snap is attempted on the moving edge; if the snapped
  * position would push the value back outside the clamp range, the
@@ -333,11 +453,19 @@ function resolveDelta(
   rawDeltaSec: number,
   thresholdSec: number,
   pps: number,
+  movingIds: ReadonlySet<string>,
 ): { deltaSec: number; snapPosition: number | null } {
   const project = useTimelineStore.getState().currentProject;
   if (!project) return { deltaSec: rawDeltaSec, snapPosition: null };
 
-  const range = computeDeltaRange(clip, mode, project);
+  // A lone clip moves freely (its drop resolves to a free slot); a
+  // set moving together is clamped so no member hits a fixed clip.
+  const range =
+    mode !== 'move'
+      ? computeDeltaRange(clip, mode, project)
+      : movingIds.size > 1
+        ? moveDeltaRange(project, movingIds)
+        : { minDelta: -clip.startOffset, maxDelta: Infinity };
   const clamped = clampDelta(range, rawDeltaSec);
 
   const playhead = useTimelineStore.getState().playheadPosition;
@@ -368,10 +496,13 @@ function computeMovingEdge(
 ): number {
   switch (mode) {
     case 'move':
-    case 'trim-left':
       return clip.startOffset + deltaSec;
+    case 'trim-left':
+      return clip.startOffset + deltaSec / (clip.playbackRate ?? 1);
     case 'trim-right':
-      return clip.startOffset + clip.duration + deltaSec;
+      return (
+        clip.startOffset + clip.duration + deltaSec / (clip.playbackRate ?? 1)
+      );
   }
 }
 
@@ -388,12 +519,13 @@ function resolveRippleDelta(
   mode: 'trim-left' | 'trim-right',
   rawDeltaSec: number,
 ): number {
+  const minSpan = MIN_CLIP_DURATION * (clip.playbackRate ?? 1);
   if (mode === 'trim-left') {
     const minDelta = -clip.trimStart;
-    const maxDelta = clip.trimEnd - clip.trimStart - MIN_CLIP_DURATION;
+    const maxDelta = clip.trimEnd - clip.trimStart - minSpan;
     return Math.max(minDelta, Math.min(maxDelta, rawDeltaSec));
   }
-  const minDelta = MIN_CLIP_DURATION - (clip.trimEnd - clip.trimStart);
+  const minDelta = minSpan - (clip.trimEnd - clip.trimStart);
   const maxDelta = clip.sourceDuration - clip.trimEnd;
   return Math.max(minDelta, Math.min(maxDelta, rawDeltaSec));
 }
@@ -405,9 +537,13 @@ function movingEdgeToDelta(
 ): number {
   switch (mode) {
     case 'move':
-    case 'trim-left':
       return targetTimelineSec - clip.startOffset;
+    case 'trim-left':
+      return (targetTimelineSec - clip.startOffset) * (clip.playbackRate ?? 1);
     case 'trim-right':
-      return targetTimelineSec - (clip.startOffset + clip.duration);
+      return (
+        (targetTimelineSec - (clip.startOffset + clip.duration)) *
+        (clip.playbackRate ?? 1)
+      );
   }
 }

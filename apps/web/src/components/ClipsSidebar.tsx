@@ -62,7 +62,7 @@ export function ClipsSidebar() {
   );
 
   return (
-    <aside className="no-select flex w-60 shrink-0 flex-col border-r border-border bg-panel">
+    <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex h-10 items-center justify-between gap-2 border-b border-border px-3 text-[11px] uppercase tracking-wide text-text-muted">
         <span>Clips</span>
         <div className="flex items-center gap-2">
@@ -102,8 +102,8 @@ export function ClipsSidebar() {
       <div className="flex-1 overflow-y-auto">
         {totalClips === 0 ? (
           <div className="px-4 py-6 text-[12px] leading-relaxed text-text-muted">
-            No clips yet. Import media or drop files into the preview area to
-            get started.
+            No clips on the timeline yet. Drag items from the Media tab onto a
+            track to start editing.
           </div>
         ) : (
           <div className="flex flex-col gap-4 py-3">
@@ -132,7 +132,7 @@ export function ClipsSidebar() {
           </div>
         )}
       </div>
-    </aside>
+    </div>
   );
 }
 

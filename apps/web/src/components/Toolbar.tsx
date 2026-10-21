@@ -16,22 +16,18 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import {
+  consumePlaceOnTimeline,
   registerArchiveInput,
   registerMediaInput,
 } from '../lib/filePickers';
 import { newId } from '../lib/ids';
 import { isMac } from '../lib/platform';
-import {
-  importAudioFile,
-  importVideoFile,
-  isAudioFile,
-  isVideoFile,
-} from '../lib/importMedia';
+import { importFilesToLibrary } from '../lib/importMedia';
+import { trackEnd } from '../lib/projectMetrics';
 import {
   downloadCurrentProjectAsZip,
   loadArchiveFromFile,
 } from '../lib/archiveActions';
-import { trackEnd } from '../lib/projectMetrics';
 import { useFFmpegContext } from '../providers/AppProviders';
 import { useDialogsStore } from '../store/useDialogsStore';
 import { useHistoryStore } from '../store/useHistoryStore';
@@ -51,10 +47,8 @@ const MOD = isMac ? '⌘' : 'Ctrl';
 export function Toolbar() {
   const project = useTimelineStore((s) => s.currentProject);
   const createProject = useTimelineStore((s) => s.createProject);
-  const addVideoClip = useTimelineStore((s) => s.addVideoClip);
-  const addAudioClip = useTimelineStore((s) => s.addAudioClip);
   const addOverlay = useTimelineStore((s) => s.addOverlay);
-  const removeClip = useTimelineStore((s) => s.removeClip);
+  const removeClips = useTimelineStore((s) => s.removeClips);
   const removeOverlay = useTimelineStore((s) => s.removeOverlay);
 
   const { isLoaded: ffmpegLoaded } = useFFmpegContext();
@@ -112,63 +106,43 @@ export function Toolbar() {
     return () => registerArchiveInput(null);
   }, []);
 
+  // Import adds files to the media library only (like Camtasia's
+  // Media Bin / Premiere's Project panel). Putting them on the
+  // timeline is a separate, explicit step from the library.
   const handleImport = async (e: ChangeEvent<HTMLInputElement>) => {
+    const placeOnTimeline = consumePlaceOnTimeline();
     const files = Array.from(e.target.files ?? []);
     e.target.value = '';
-    const current = useTimelineStore.getState().currentProject;
-    if (!current || files.length === 0) return;
-
-    const videoTrack = current.tracks.find((t) => t.type === 'video');
-    const audioTrack = current.tracks.find((t) => t.type === 'audio');
-    let videoEnd = videoTrack ? trackEnd(current, videoTrack.id) : 0;
-    let audioEnd = audioTrack ? trackEnd(current, audioTrack.id) : 0;
-
+    if (!useTimelineStore.getState().currentProject || files.length === 0) {
+      return;
+    }
     setImporting(true);
     setImportNotice(null);
-    let imported = 0;
-    let skipped = 0;
-    let lastClipId: string | null = null;
-    let lastClipStart = 0;
     try {
-      for (const file of files) {
-        if (isVideoFile(file) && videoTrack) {
-          const clip = await importVideoFile(file, videoTrack.id, videoEnd);
-          addVideoClip(videoTrack.id, clip);
-          videoEnd += clip.duration;
-          lastClipId = clip.id;
-          lastClipStart = clip.startOffset;
-          imported += 1;
-        } else if (isAudioFile(file) && audioTrack) {
-          const clip = await importAudioFile(file, audioTrack.id, audioEnd);
-          addAudioClip(audioTrack.id, clip);
-          audioEnd += clip.duration;
-          lastClipId = clip.id;
-          lastClipStart = clip.startOffset;
-          imported += 1;
-        } else {
-          skipped += 1;
+      const { assets, skipped } = await importFilesToLibrary(files);
+      if (placeOnTimeline) {
+        // Lay each asset at the end of its kind's first track.
+        for (const asset of assets) {
+          const p = useTimelineStore.getState().currentProject;
+          const track = p?.tracks.find((t) => t.type === asset.kind);
+          if (!p || !track) continue;
+          useTimelineStore.getState().insertMediaClip(asset.id, {
+            trackId: track.id,
+            startOffset: trackEnd(p, track.id),
+          });
         }
       }
+      const parts: string[] = [];
+      if (assets.length > 0) {
+        parts.push(
+          `Added ${assets.length} file${assets.length === 1 ? '' : 's'} to Media`,
+        );
+      }
+      if (skipped > 0) parts.push(`skipped ${skipped} unsupported`);
+      if (parts.length > 0) setImportNotice(parts.join(' · '));
     } finally {
       setImporting(false);
     }
-
-    // Select the most recently imported clip so the user gets
-    // visual confirmation, and ask the timeline to scroll its
-    // start into view (the listener lives in Timeline.tsx).
-    if (lastClipId) {
-      useTimelineStore.getState().selectClip(lastClipId);
-      window.dispatchEvent(
-        new CustomEvent('timeline:scroll-to-time', {
-          detail: { seconds: lastClipStart },
-        }),
-      );
-    }
-
-    const parts: string[] = [];
-    if (imported > 0) parts.push(`Imported ${imported} file${imported === 1 ? '' : 's'}`);
-    if (skipped > 0) parts.push(`skipped ${skipped} unsupported`);
-    if (parts.length > 0) setImportNotice(parts.join(' · '));
   };
 
   const handleSaveArchive = async () => {
@@ -215,7 +189,8 @@ export function Toolbar() {
   };
 
   const handleDelete = () => {
-    if (selectedClipId) removeClip(selectedClipId);
+    const ids = useTimelineStore.getState().selectedClipIds;
+    if (ids.length > 0) removeClips(ids);
     else if (selectedOverlayId) removeOverlay(selectedOverlayId);
   };
 

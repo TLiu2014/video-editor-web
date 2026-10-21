@@ -1,12 +1,18 @@
 import clsx from 'clsx';
 import { Music2Icon, VideoIcon, XIcon } from 'lucide-react';
+import { useState } from 'react';
 import {
   chooseMajorInterval,
   collectSnapTargets,
   findNearestTarget,
 } from '../../lib/snapping';
+import { importFilesToLibrary } from '../../lib/importMedia';
 import { useTimelineStore } from '../../store/useTimelineStore';
-import { getPixelsPerSecond } from '../../store/useTimelineViewStore';
+import { MEDIA_DRAG_TYPE } from '../MediaLibrary';
+import {
+  getPixelsPerSecond,
+  useTimelineViewStore,
+} from '../../store/useTimelineViewStore';
 import type { TimelineTrack } from '../../types/timeline';
 import { Clip } from './Clip';
 import { SNAP_THRESHOLD_PX, TRACK_HEIGHT_AUDIO, TRACK_HEIGHT_VIDEO } from './constants';
@@ -39,33 +45,73 @@ export function Track({
   // lands cleanly on clip edges and grid ticks.
   const onSurfacePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.target !== e.currentTarget) return;
-    const surface = e.currentTarget.closest(
-      '[data-timeline-surface]',
-    ) as HTMLElement | null;
-    if (!surface) return;
-    const rect = surface.getBoundingClientRect();
-    const pps = getPixelsPerSecond();
-    const x = Math.max(0, e.clientX - rect.left);
-    const raw = x / pps;
-    const project = useTimelineStore.getState().currentProject;
-    const targets = project
-      ? collectSnapTargets(project, {
-          gridInterval: chooseMajorInterval(pps),
-          gridLimitSec: 3600,
-        })
-      : [0];
-    const snap = findNearestTarget(raw, targets, SNAP_THRESHOLD_PX / pps);
-    useTimelineStore.getState().updatePlayhead(snap ?? raw);
+    if (!e.currentTarget.closest('[data-timeline-surface]')) return;
+    useTimelineStore
+      .getState()
+      .updatePlayhead(timeAtClientX(e.currentTarget, e.clientX));
     useTimelineStore.getState().selectClip(null);
+  };
+
+  // Drag-and-drop from the media library (or straight from the OS).
+  // The drop time snaps like a click does; the store then resolves it
+  // to the nearest free slot, falling over to another track of the
+  // asset's kind when this one is the wrong kind or occupied.
+  const [dropHover, setDropHover] = useState(false);
+  const reorderAtPx = useTimelineViewStore((s) =>
+    s.reorderMarker?.trackId === track.id
+      ? s.reorderMarker.at * getPixelsPerSecond()
+      : null,
+  );
+  const acceptsDrag = (e: React.DragEvent) =>
+    e.dataTransfer.types.includes(MEDIA_DRAG_TYPE) ||
+    e.dataTransfer.types.includes('Files');
+  const onDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!acceptsDrag(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    setDropHover(true);
+  };
+  const onDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    if (!acceptsDrag(e)) return;
+    e.preventDefault();
+    setDropHover(false);
+    const at = timeAtClientX(e.currentTarget, e.clientX);
+    const store = useTimelineStore.getState();
+    const mediaId = e.dataTransfer.getData(MEDIA_DRAG_TYPE);
+    if (mediaId) {
+      store.insertMediaClip(mediaId, { trackId: track.id, startOffset: at });
+      return;
+    }
+    const { assets } = await importFilesToLibrary(
+      Array.from(e.dataTransfer.files),
+    );
+    // Lay several dropped files end to end from the drop point.
+    let cursor = at;
+    for (const asset of assets) {
+      const id = useTimelineStore
+        .getState()
+        .insertMediaClip(asset.id, { trackId: track.id, startOffset: cursor });
+      const placed = useTimelineStore
+        .getState()
+        .currentProject?.tracks.flatMap((t) => t.clips)
+        .find((c) => c.id === id);
+      if (placed) cursor = placed.startOffset + placed.duration;
+    }
   };
 
   return (
     <div
-      className="group relative cursor-text border-b border-border bg-panel-elevated/40"
+      className={clsx(
+        'group relative cursor-text border-b border-border bg-panel-elevated/40',
+        dropHover && 'bg-accent/15',
+      )}
       style={{ height, width }}
       data-track-id={track.id}
       data-track-type={track.type}
       onPointerDown={onSurfacePointerDown}
+      onDragOver={onDragOver}
+      onDragLeave={() => setDropHover(false)}
+      onDrop={onDrop}
     >
       <div className="absolute left-2 top-1 z-10 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-text-muted">
         {isVideo ? (
@@ -109,8 +155,34 @@ export function Track({
       {track.clips.map((clip) => (
         <Clip key={clip.id} clip={clip} />
       ))}
+      {reorderAtPx !== null ? (
+        <div
+          className="pointer-events-none absolute inset-y-0 z-40 w-[3px] -translate-x-1/2 rounded bg-accent shadow-[0_0_6px] shadow-accent"
+          style={{ left: reorderAtPx }}
+        />
+      ) : null}
     </div>
   );
+}
+
+/**
+ * Timeline seconds under a client X coordinate, snapped to clip
+ * edges, the playhead and ruler ticks within the snap threshold.
+ */
+function timeAtClientX(el: HTMLElement, clientX: number): number {
+  const surface = el.closest('[data-timeline-surface]') as HTMLElement | null;
+  if (!surface) return 0;
+  const rect = surface.getBoundingClientRect();
+  const pps = getPixelsPerSecond();
+  const raw = Math.max(0, clientX - rect.left) / pps;
+  const project = useTimelineStore.getState().currentProject;
+  const targets = project
+    ? collectSnapTargets(project, {
+        gridInterval: chooseMajorInterval(pps),
+        gridLimitSec: 3600,
+      })
+    : [0];
+  return findNearestTarget(raw, targets, SNAP_THRESHOLD_PX / pps) ?? raw;
 }
 
 function TrackToggle({

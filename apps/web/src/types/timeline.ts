@@ -14,12 +14,41 @@ export type ClipId = string;
 export type TrackId = string;
 export type OverlayId = string;
 export type ProjectId = string;
+export type MediaId = string;
 
 export type TrackKind = 'video' | 'audio';
+
+/**
+ * One imported source file in the project's media library (the
+ * "Media Bin" in Camtasia, the "Project panel" in Premiere). Clips on
+ * the timeline are *uses* of an asset: many clips — e.g. the pieces
+ * of a split — can point at the same asset, and the raw bytes are
+ * stored once, keyed by the asset id.
+ */
+export interface MediaAsset {
+  id: MediaId;
+  kind: TrackKind;
+  /** Display name. Defaults to the file name; renamable in the library. */
+  name: string;
+  /** In-memory handle to the source media. Not serialized. */
+  file: File;
+  /** Intrinsic source length in seconds, probed at import. */
+  duration: number;
+  /** Video only — see `VideoClip.hasAudio`. Always true for audio assets. */
+  hasAudio: boolean;
+  /** Epoch ms of import. Drives the library's default sort order. */
+  importedAt: number;
+}
 
 export interface BaseClip {
   id: ClipId;
   name: string;
+  /**
+   * Library asset this clip was cut from. Optional only for clips
+   * created before the media library existed; `loadProject` and the
+   * archive importer backfill it, so live clips always carry one.
+   */
+  mediaId?: MediaId;
   /** In-memory handle to the source media. Not serialized. */
   file: File;
   /** Position on the global timeline where this clip begins playing (seconds). */
@@ -172,6 +201,8 @@ export interface VideoProject {
   audioSampleRate: number;
   tracks: TimelineTrack[];
   overlays: TextOverlay[];
+  /** Media library. Every clip's `mediaId` resolves to an entry here. */
+  media: MediaAsset[];
 }
 
 /**
@@ -179,14 +210,25 @@ export interface VideoProject {
  * a lightweight descriptor that the persistence layer can resolve back to raw
  * bytes stored in IndexedDB.
  */
-export interface SerializedClip extends Omit<BaseClip, 'file'> {
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
+  ? Omit<T, K>
+  : never;
+
+export type SerializedClip = DistributiveOmit<AnyClip, 'file'> & {
   fileRef: { name: string; size: number; type: string };
-}
+};
 
 export interface SerializedTrack extends Omit<TimelineTrack, 'clips'> {
   clips: SerializedClip[];
 }
 
-export interface SerializedProject extends Omit<VideoProject, 'tracks'> {
+export interface SerializedMediaAsset extends Omit<MediaAsset, 'file'> {
+  fileRef: { name: string; size: number; type: string };
+}
+
+export interface SerializedProject
+  extends Omit<VideoProject, 'tracks' | 'media'> {
   tracks: SerializedTrack[];
+  /** Absent in projects saved before the media library existed. */
+  media?: SerializedMediaAsset[];
 }

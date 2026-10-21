@@ -13,10 +13,12 @@ interface DialogsState {
   projectSettings: boolean;
   export: boolean;
   captions: boolean;
+  shortcuts: boolean;
   setProjectList: (open: boolean) => void;
   setProjectSettings: (open: boolean) => void;
   setExport: (open: boolean) => void;
   setCaptions: (open: boolean) => void;
+  setShortcuts: (open: boolean) => void;
 }
 
 export const useDialogsStore = create<DialogsState>((set) => ({
@@ -24,8 +26,10 @@ export const useDialogsStore = create<DialogsState>((set) => ({
   projectSettings: false,
   export: false,
   captions: false,
+  shortcuts: false,
   setProjectList: (open) => set({ projectList: open }),
   setProjectSettings: (open) => set({ projectSettings: open }),
   setExport: (open) => set({ export: open }),
   setCaptions: (open) => set({ captions: open }),
+  setShortcuts: (open) => set({ shortcuts: open }),
 }));

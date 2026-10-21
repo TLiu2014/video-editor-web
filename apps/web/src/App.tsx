@@ -1,11 +1,13 @@
-import { ClipsSidebar } from './components/ClipsSidebar';
+import { LeftSidebar } from './components/LeftSidebar';
 import { CommandPalette } from './components/CommandPalette';
 import { EmptyState } from './components/EmptyState';
 import { Preview } from './components/Preview';
 import { PropertiesPanel } from './components/PropertiesPanel';
+import { ShortcutsDialog } from './components/ShortcutsDialog';
 import { StatusBar } from './components/StatusBar';
 import { Timeline } from './components/timeline/Timeline';
 import { Toolbar } from './components/Toolbar';
+import { ResizeHandle } from './components/ui/ResizeHandle';
 import { Transport } from './components/Transport';
 import { useCommands } from './hooks/useCommands';
 import {
@@ -65,15 +67,25 @@ function AppShell() {
       <Toolbar />
       <main className="flex min-h-0 flex-1 flex-col">
         <div className="flex min-h-0 flex-1">
-          {hasProject ? <ClipsSidebar /> : null}
+          {hasProject ? <LeftSidebar /> : null}
+          {hasProject ? (
+            <ResizeHandle panel="sidebarWidth" axis="x" direction={1} />
+          ) : null}
           {hasProject ? <Preview /> : <EmptyState />}
+          {hasProject ? (
+            <ResizeHandle panel="propertiesWidth" axis="x" direction={-1} />
+          ) : null}
           {hasProject ? <PropertiesPanel /> : null}
         </div>
+        {hasProject ? (
+          <ResizeHandle panel="timelineHeight" axis="y" direction={-1} />
+        ) : null}
         <Transport />
         <Timeline />
       </main>
       <StatusBar />
       <CommandPalette commands={commands} />
+      <ShortcutsDialog />
     </div>
   );
 }

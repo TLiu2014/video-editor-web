@@ -8,7 +8,9 @@ import {
   Volume2Icon,
   VolumeXIcon,
 } from 'lucide-react';
+import { useMemo } from 'react';
 import { formatTime } from '../lib/formatTime';
+import { useLayoutStore } from '../store/useLayoutStore';
 import { useTimelineStore } from '../store/useTimelineStore';
 import type {
   AnyClip,
@@ -63,9 +65,13 @@ function PanelShell({
 }) {
   const selectClip = useTimelineStore((s) => s.selectClip);
   const selectOverlay = useTimelineStore((s) => s.selectOverlay);
+  const panelWidth = useLayoutStore((s) => s.propertiesWidth);
 
   return (
-    <aside className="no-select flex w-80 shrink-0 flex-col border-l border-border bg-panel">
+    <aside
+      className="no-select flex shrink-0 flex-col border-l border-border bg-panel"
+      style={{ width: panelWidth }}
+    >
       <header className="flex h-10 items-center justify-between border-b border-border px-4 text-[11px] uppercase tracking-wide text-text-muted">
         <span>{title}</span>
         <button
@@ -86,15 +92,19 @@ function PanelShell({
 }
 
 function MultiClipProperties({ clipIds }: { clipIds: ClipId[] }) {
-  const clips = useTimelineStore((s) => {
-    if (!s.currentProject) return [];
+  // Select the stable project ref and derive in a memo: a selector
+  // that builds a new array each call makes useSyncExternalStore loop
+  // forever ("Maximum update depth exceeded").
+  const project = useTimelineStore((s) => s.currentProject);
+  const clips = useMemo(() => {
+    if (!project) return [];
     const set = new Set(clipIds);
     const out: AnyClip[] = [];
-    for (const t of s.currentProject.tracks) {
+    for (const t of project.tracks) {
       for (const c of t.clips) if (set.has(c.id)) out.push(c);
     }
     return out;
-  });
+  }, [project, clipIds]);
   const setClipFadeIn = useTimelineStore((s) => s.setClipFadeIn);
   const setClipFadeOut = useTimelineStore((s) => s.setClipFadeOut);
   const setClipVolume = useTimelineStore((s) => s.setClipVolume);

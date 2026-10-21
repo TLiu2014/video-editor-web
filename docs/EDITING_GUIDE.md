@@ -1,13 +1,14 @@
 # Editing Guide
 
-This guide describes the editing features supported in the web video editor. Use it as a reference for what you can do today and how to do it.
+This guide describes the editing features supported in the web video editor. Use it as a reference for what you can do today and how to do it. For how the editor is built, and which established editor (Camtasia, Premiere, Final Cut Pro…) each behavior comes from, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Quick start
 
 1. Create or open a project.
-2. Import a video with **File → Import Media…**
-3. Edit on the timeline and preview your changes.
-4. Export with **File → Export Video…** or the **Export** button in the toolbar.
+2. Import media with **File → Import Media…**, or drop files on the **Media** tab. Files go into the media library.
+3. Drag items from **Media** onto the timeline (or press **+** on an item to add it at the playhead).
+4. Edit on the timeline and preview your changes.
+5. Export with **File → Export Video…** or the **Export** button in the toolbar.
 
 ---
 
@@ -38,12 +39,31 @@ Each project starts with:
 - **V1** — one video track (your main picture)
 - **A1** — one audio track (secondary audio, such as music or voiceover)
 
-**Import media:** **File → Import Media…**
+### Media library
 
-- Video files go to **V1**.
-- Audio files go to **A1**.
+The left sidebar has two tabs:
 
-Clips appear on the timeline with thumbnails (video) or waveforms (audio). Drag clips to move them; use the trim handles on clip edges to shorten them.
+- **Media:** every file imported into the project (like Camtasia's Media Bin).
+- **Clips:** every clip currently on the timeline, grouped by track.
+
+**Import media:** use **File → Import Media…** or the upload icon in the Media tab, or drop files from your computer onto the Media tab. Importing adds files to the library only; it doesn't change the timeline.
+
+**Use media on the timeline:**
+
+- Drag an item from Media onto a track at the time you want. Video goes on video tracks and audio on audio tracks. If the spot is taken, the clip goes on another track of the same type, or into the nearest free gap.
+- Or hover an item and click **+** to add it at the playhead.
+- You can also drop files from your computer directly onto a track. They're imported and placed end to end.
+
+**Manage the library:**
+
+- Each item shows its duration and how many timeline clips use it ("used ×2" or "unused").
+- **Click** an item to select all the clips that use it.
+- **Double-click** the name to rename it. Clips that still have the old name are renamed too.
+- **Trash icon:** removes the item. If clips use it, you'll be asked to confirm, and those clips are removed as well.
+- **Broom icon:** removes all unused items at once.
+- Right-click a clip and choose **Show in Media** to find its source in the library.
+
+Splitting a clip doesn't duplicate its media. All pieces share the same library item.
 
 **Track controls:**
 
@@ -80,22 +100,59 @@ The preview updates as you move the playhead. Scrubbing is done on the timeline,
 
 ---
 
-## 4. Cutting tools (trim and split)
+## 4. Editing clips (move, trim, split, join)
+
+Right-click any clip for a menu with the actions below. It acts on the current selection; right-clicking an unselected clip selects it first.
+
+### Select
+
+- Click a clip to select it; **Shift+click** to add or remove clips from the selection. Click empty track space or press **Esc** to clear the selection.
+- **⌘A / Ctrl+A** selects all clips. The command palette also has *Select Clips on Same Track* and *Select Clips Before/After Playhead*.
+
+### Reorder
+
+Drag a clip **onto another clip** to change the order. While you drag, a highlighted line shows where it will go: before the clip if you're over its left half, after it if you're over its right half. Drop it and the clip is inserted there. The space it left closes up, and later clips move right to make room. This works across tracks of the same type too. Grouped clips don't reorder; ungroup them first.
+
+### Move
+
+- **Drag** a clip into empty space on the track. Clips never overlap on a track. If you drop a clip where it doesn't fit, it settles into the **nearest free gap**, so you can drag a clip past its neighbors.
+- Drag a clip **up or down** onto another track of the same type (for example V1 → V2 for picture-in-picture).
+- With **several clips selected**, dragging one moves them all together. They stop as soon as any of them would hit another clip. Grouped clips (*Group Selected Clips*) always move together.
+- **← / →** nudge the selection by 1 pixel at the current zoom (**Shift**: 10 pixels).
+- Moves snap to clip edges, the playhead and ruler ticks.
 
 ### Trim (adjust clip ends)
 
-- Hover near the **left or right edge** of a clip on the timeline.
-- Drag the trim handle to shorten or extend the visible portion of the clip.
-- Hold **Shift** while trimming to ripple-edit (following clips shift with the edit).
+- Hover near the **left or right edge** of a clip and drag the trim handle. Trims stop at neighboring clips and at the start or end of the source media.
+- Hold **Shift** while trimming to **ripple** (following clips on the track shift with the edit).
+- **Trim to playhead:** put the playhead inside a clip and press **Q** to trim the clip's start to the playhead, or **W** to trim its end. Add **Shift** (**Shift+Q / Shift+W**) to ripple, so no gap is left. With clips selected, only those are trimmed; otherwise every clip under the playhead is.
 
 The **Properties** panel shows read-only **In** and **Out** times for the selected clip.
 
 ### Split (cut in the middle)
 
 1. Move the playhead to where you want to cut.
-2. Click **Split** in the transport bar, or use **Edit → Split at Playhead**, or press **S**.
+2. Click **Split** in the timeline toolbar, use **Edit → Split at Playhead**, or press **S**.
 
-The clip is divided into two clips at the playhead. Split works on the selected clip, or on all clips under the playhead when nothing is selected.
+The clip is divided into two clips at the playhead. Split works on the selected clips, or on every clip under the playhead when nothing is selected.
+
+### Join (undo a split)
+
+Select two or more pieces that sit side by side and were split from the same media, then choose **Join Clips** from the right-click menu or the command palette. They become one clip again. The joined clip keeps the left piece's settings and the right piece's fade-out.
+
+Join only works on pieces that are continuous in the original media, at the same speed, with no gap between them. Otherwise the menu tells you why. To keep unrelated clips together instead, use **Group**.
+
+### Delete and close gaps
+
+- **⌫ / Delete** removes all selected clips and leaves a gap.
+- **Shift+⌫** (*Ripple Delete*) removes them and closes the space on each track.
+- **Close Gaps** (right-click menu or palette) slides the clips on a track together so there's no empty space. The first clip keeps its position. It works on the tracks of the selected clips, or on every track if nothing is selected.
+
+### Range edits (In/Out)
+
+- **I** / **O** mark the in and out points at the playhead (**Shift+I** / **Shift+O** clear them).
+- **Trim to range** keeps only what's inside the range.
+- **Delete range** removes what's inside it and closes the gap.
 
 ---
 
@@ -112,7 +169,7 @@ You can remove embedded audio from video clips in the exported file:
 
 ### Add secondary audio
 
-Import an audio file with **File → Import Media…**. It is placed on **A1**. You can place multiple audio clips on the timeline and move them like video clips.
+Import an audio file into **Media**, then drag it onto **A1** (or click **+** to add it at the playhead). You can place multiple audio clips on the timeline and move them like video clips.
 
 ### Volume slider
 
@@ -171,13 +228,38 @@ When your edit is ready:
 
 ---
 
+## Workspace
+
+Drag the borders between the media sidebar, the preview, the Properties panel and the timeline to resize them. Double-click a border to reset it. Sizes are remembered.
+
+---
+
 ## Keyboard shortcuts (summary)
 
 | Shortcut | Action |
 |----------|--------|
+| **?** | Show all shortcuts |
 | **Space** | Play / pause |
+| **Home / End** | Go to start / end |
+| **↑ / ↓** | Previous / next edit point |
 | **S** | Split at playhead |
-| **← / →** | Nudge playhead (0.1 s) |
+| **⌘J** | Join clips |
+| **⌘X** | Cut |
+| **⌘G / ⇧⌘G** | Group / ungroup |
+| **X** | Mark the selected clips as In/Out (or a range at the playhead) |
+| **⇧X** | Clear In/Out |
+| **'** / **⇧'** | Delete range (close the gap) / trim to range |
+| **T** | Add text overlay at playhead |
+| **⌘I / ⌘E** | Import media / export video |
+| **Esc** | Clear selection |
+| **Q / W** | Trim clip start / end to playhead (**Shift**: ripple) |
+| **⌫ / Shift+⌫** | Delete / ripple delete selection |
+| **← / →** | Nudge selection, or move playhead 0.1 s when nothing is selected (**Shift**: 10×) |
+| **I / O** | Mark in / out |
+| **⌘C / ⌘V** | Copy / paste at playhead |
+| **⌘A** | Select all clips |
+| **⌘Z / ⇧⌘Z** | Undo / redo |
+| **= / − / 0** | Zoom in / out / reset |
 | **⌘K / Ctrl+K** | Command palette |
 
 Additional commands (undo, ripple delete, etc.) are available from the command palette and **Edit** menu.
@@ -191,7 +273,8 @@ Additional commands (undo, ripple delete, etc.) are available from the command p
 | Fixed-resolution export (e.g. 1080p 16:9 or custom 9:16) | Yes |
 | One video track + one audio track (V1 + A1) | Yes |
 | Play, pause, and seek | Yes |
-| Trim and split | Yes |
+| Trim, split, join, move, close gaps | Yes |
+| Media library (import, add to timeline, rename, remove unused) | Yes |
 | Mute original audio, add secondary audio, volume control | Yes (mute applies fully on export) |
 | Text overlay with default font | Yes |
 | Export to standard MP4 | Yes |

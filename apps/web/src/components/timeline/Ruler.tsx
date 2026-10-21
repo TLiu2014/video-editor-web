@@ -77,16 +77,18 @@ export function Ruler({ duration }: { duration: number }) {
   const minorInterval = majorInterval / 5;
 
   // Render minor ticks at every minorInterval, major (with label) at
-  // every majorInterval. Floating-point comparison uses a fraction
-  // of the minor interval as tolerance.
+  // every 5th. Ticks are generated from an integer index — summing
+  // `t += minorInterval` drifts (0.2 × 10 = 1.9999…), and formatTime
+  // floors, so labels came out as 00:00, 00:01, 00:01, 00:03…
   const ticks: { x: number; major: boolean; label: string | null }[] = [];
-  const tolerance = minorInterval / 4;
-  for (let t = 0; t <= duration + tolerance; t += minorInterval) {
-    const isMajor = Math.abs((t / majorInterval) - Math.round(t / majorInterval)) < tolerance / majorInterval;
+  const count = Math.floor(duration / minorInterval + 0.25);
+  for (let i = 0; i <= count; i++) {
+    const isMajor = i % 5 === 0;
+    const t = (i / 5) * majorInterval;
     ticks.push({
       x: t * pps,
       major: isMajor,
-      label: isMajor ? formatTime(t, false) : null,
+      label: isMajor ? formatTime(Math.round(t * 1000) / 1000, false) : null,
     });
   }
 

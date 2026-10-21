@@ -1,10 +1,24 @@
 import { useEffect } from 'react';
+import {
+  addTextAtPlayhead,
+  cutSelection,
+  deleteSelection,
+  groupSelection,
+  joinSelection,
+  jumpToEditPoint,
+  markSelectionRange,
+  splitSelection,
+  trimSelectionToPlayhead,
+  ungroupSelection,
+} from '../lib/editActions';
+import { triggerMediaPicker } from '../lib/filePickers';
 import { computeProjectDuration } from '../lib/projectMetrics';
 import {
   chooseMajorInterval,
   collectSnapTargets,
   findNearestTarget,
 } from '../lib/snapping';
+import { useDialogsStore } from '../store/useDialogsStore';
 import { useHistoryStore } from '../store/useHistoryStore';
 import { usePaletteStore } from '../store/usePaletteStore';
 import { useTimelineStore } from '../store/useTimelineStore';
@@ -20,10 +34,13 @@ import type {
 } from '../types/timeline';
 
 /**
- * Global keyboard shortcuts.
+ * Global keyboard shortcuts. The user-facing catalogue (shown by `?`)
+ * is `lib/shortcuts.ts` — update both together.
  *   Space             play / pause
- *   S                 split active video clip at the playhead
- *   Backspace /       delete the selected clip or overlay
+ *   S                 split selected clips (or all crossed) at the playhead
+ *   Q / W             trim start / end of the clip under the playhead to
+ *                     the playhead (Shift+Q / Shift+W ripple the trim)
+ *   Backspace /       delete the selected clips or overlay
  *   Delete
  *   Shift+Backspace / ripple-delete (close the gap by pulling
  *   Shift+Delete      same-track clips left)
@@ -138,6 +155,38 @@ export function useKeyboardShortcuts(): void {
         return;
       }
 
+      // Remaining Cmd/Ctrl bindings (see lib/shortcuts.ts for the
+      // user-facing list and where each comes from).
+      if ((e.metaKey || e.ctrlKey) && !e.altKey) {
+        const hasProject = !!useTimelineStore.getState().currentProject;
+        if (!hasProject) return;
+        switch (e.code) {
+          case 'KeyX':
+            e.preventDefault();
+            cutSelection();
+            return;
+          case 'KeyG':
+            e.preventDefault();
+            if (e.shiftKey) ungroupSelection();
+            else groupSelection();
+            return;
+          case 'KeyJ':
+            e.preventDefault();
+            joinSelection();
+            return;
+          case 'KeyI':
+            e.preventDefault();
+            triggerMediaPicker();
+            return;
+          case 'KeyE':
+            e.preventDefault();
+            useDialogsStore.getState().setExport(true);
+            return;
+          default:
+            return;
+        }
+      }
+
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
       const state = useTimelineStore.getState();
@@ -169,6 +218,56 @@ export function useKeyboardShortcuts(): void {
       }
 
       switch (e.code) {
+        case 'Escape': {
+          if (state.selectedClipIds.length === 0 && !state.selectedOverlayId) {
+            return;
+          }
+          state.selectClip(null);
+          return;
+        }
+        case 'Slash': {
+          // `?` — Shift+/ on US layouts.
+          if (!e.shiftKey) return;
+          e.preventDefault();
+          useDialogsStore.getState().setShortcuts(true);
+          return;
+        }
+        case 'Home':
+        case 'End': {
+          if (!project) return;
+          e.preventDefault();
+          state.updatePlayhead(
+            e.code === 'Home' ? 0 : computeProjectDuration(project),
+          );
+          return;
+        }
+        case 'ArrowUp':
+        case 'ArrowDown': {
+          if (!project) return;
+          e.preventDefault();
+          jumpToEditPoint(e.code === 'ArrowUp' ? -1 : 1);
+          return;
+        }
+        case 'KeyX': {
+          if (!project) return;
+          e.preventDefault();
+          if (e.shiftKey) state.clearInOutPoints();
+          else markSelectionRange();
+          return;
+        }
+        case 'Quote': {
+          if (!project) return;
+          e.preventDefault();
+          if (e.shiftKey) state.trimToRange();
+          else state.deleteRange();
+          return;
+        }
+        case 'KeyT': {
+          if (!project) return;
+          e.preventDefault();
+          addTextAtPlayhead();
+          return;
+        }
         case 'Space': {
           if (!project) return;
           e.preventDefault();
@@ -181,28 +280,21 @@ export function useKeyboardShortcuts(): void {
           // Razor: with clips selected, split only those; with no
           // selection, split every clip the playhead crosses on
           // every track.
-          state.splitClipsAtPlayhead(
-            state.selectedClipIds.length > 0
-              ? { onlySelectedIds: state.selectedClipIds }
-              : undefined,
-          );
+          splitSelection();
+          return;
+        }
+        case 'KeyQ':
+        case 'KeyW': {
+          if (!project) return;
+          e.preventDefault();
+          trimSelectionToPlayhead(e.code === 'KeyQ' ? 'start' : 'end', e.shiftKey);
           return;
         }
         case 'Backspace':
         case 'Delete': {
-          if (state.selectedClipId) {
+          if (state.selectedClipIds.length > 0 || state.selectedOverlayId) {
             e.preventDefault();
-            if (e.shiftKey) {
-              state.rippleDeleteClip(state.selectedClipId);
-            } else {
-              state.removeClip(state.selectedClipId);
-            }
-            return;
-          }
-          if (state.selectedOverlayId) {
-            e.preventDefault();
-            state.removeOverlay(state.selectedOverlayId);
-            return;
+            deleteSelection(e.shiftKey);
           }
           return;
         }
@@ -263,6 +355,11 @@ function nudge(direction: 1 | -1, shift: boolean): void {
   const stepSec = stepPx / pps;
   const delta = stepSec * direction;
 
+  if (state.selectedClipIds.length > 1) {
+    // Multi-selection nudges in lockstep (no per-clip snapping).
+    state.moveClips(state.selectedClipIds, delta);
+    return;
+  }
   if (state.selectedClipId) {
     const clip = findClipById(project.tracks, state.selectedClipId);
     if (clip) {

@@ -1,7 +1,7 @@
 import { unzip, zip, type Unzipped } from 'fflate';
 import { newId } from './ids';
 import {
-  rehydrateClip,
+  rehydrateProject,
   serializeProject,
 } from '../serialization/project';
 import type {
@@ -15,12 +15,12 @@ import type {
  *
  * Layout:
  *   project.json                # SerializedProject (JSON-safe)
- *   media/<clipId>.bin           # raw bytes of clip.file
+ *   media/<mediaId>.bin          # raw bytes of one library asset
  *
- * Each clip's bytes are written under its own id so import can
- * reattach them without resolving by content hash. Splits of the
- * same source File produce duplicate entries — wasteful but
- * straightforward; matches how IDB persistence stores them too.
+ * Bytes are written once per library asset, so splits of the same
+ * source don't duplicate media. Archives written before the media
+ * library existed use `media/<clipId>.bin`; `rehydrateProject`
+ * migrates those on import.
  *
  * Uses fflate's level-0 (stored) compression because video/audio
  * payloads are already compressed by their codec; further deflate
@@ -41,11 +41,9 @@ export async function exportProjectAsZip(
     [MANIFEST_FILE]: manifest,
   };
 
-  for (const track of project.tracks) {
-    for (const clip of track.clips) {
-      const buf = await clip.file.arrayBuffer();
-      inputs[`${MEDIA_DIR}/${clip.id}.bin`] = new Uint8Array(buf);
-    }
+  for (const asset of project.media) {
+    const buf = await asset.file.arrayBuffer();
+    inputs[`${MEDIA_DIR}/${asset.id}.bin`] = new Uint8Array(buf);
   }
 
   const data = await new Promise<Uint8Array>((resolve, reject) => {
@@ -82,33 +80,16 @@ export async function importProjectFromZip(
     new TextDecoder().decode(manifestBytes as Uint8Array),
   ) as SerializedProject;
 
-  const tracks = manifest.tracks.map((track) => ({
-    ...track,
-    clips: track.clips.map((sclip) => {
-      const path = `${MEDIA_DIR}/${sclip.id}.bin`;
-      const bytes = unzipped[path];
-      if (!bytes) {
-        throw new Error(`Archive missing media file: ${path}`);
-      }
-      const blob = new Blob([bytes as BlobPart], {
-        type: sclip.fileRef.type || 'application/octet-stream',
-      });
-      return rehydrateClip(sclip, blob);
-    }),
-  }));
+  const project = await rehydrateProject(manifest, (key) => {
+    const bytes = unzipped[`${MEDIA_DIR}/${key}.bin`];
+    return bytes ? new Blob([bytes as BlobPart]) : undefined;
+  });
 
   return {
-    ...manifest,
+    ...project,
     // New id so the import doesn't silently overwrite an existing
     // saved project with the same id. The user can rename freely.
     id: newId(),
     name: manifest.name || 'Imported Project',
-    frameRate:
-      typeof manifest.frameRate === 'number' ? manifest.frameRate : 30,
-    audioSampleRate:
-      typeof manifest.audioSampleRate === 'number'
-        ? manifest.audioSampleRate
-        : 48000,
-    tracks,
   };
 }
