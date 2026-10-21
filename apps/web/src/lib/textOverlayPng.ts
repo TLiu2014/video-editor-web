@@ -1,4 +1,5 @@
 import { drawShape, isTextOverlay, shapePixelBounds } from './shapes';
+import { drawTextOverlay, layoutText } from './textRender';
 import type { AnyOverlay, VideoProject } from '../types/timeline';
 
 export interface RenderedOverlay {
@@ -44,42 +45,18 @@ export async function renderOverlayToPNG(
     });
     return { png, x: b.x, y: b.y, width: b.width, height: b.height };
   }
-  const font = `600 ${overlay.style.size}px Inter, system-ui, -apple-system, sans-serif`;
-
-  // First pass: measure on a small detached canvas. We need the
-  // exact text width and ascent/descent to size the output bitmap.
-  const measureCanvas = document.createElement('canvas');
-  const measureCtx = measureCanvas.getContext('2d');
-  if (!measureCtx) throw new Error('Canvas 2D context unavailable.');
-  measureCtx.font = font;
-  const metrics = measureCtx.measureText(overlay.text);
-  const ascent = metrics.actualBoundingBoxAscent || overlay.style.size * 0.85;
-  const descent =
-    metrics.actualBoundingBoxDescent || overlay.style.size * 0.25;
-  // Pad slightly so subpixel rendering doesn't clip edges.
-  const padX = Math.ceil(overlay.style.size * 0.15);
-  const padY = Math.ceil(overlay.style.size * 0.15);
-  const width = Math.max(2, Math.ceil(metrics.width) + padX * 2);
-  const height = Math.max(2, Math.ceil(ascent + descent) + padY * 2);
-
-  // Second pass: render to the actual output bitmap.
-  const bitmap = await drawToCanvas(width, height, (ctx) => {
-    ctx.font = font;
-    ctx.textBaseline = 'top';
-    ctx.fillStyle = overlay.style.color;
-    // Subtle drop shadow matching the preview's text-shadow.
-    ctx.shadowColor = 'rgba(0,0,0,0.6)';
-    ctx.shadowBlur = Math.max(2, overlay.style.size * 0.08);
-    ctx.shadowOffsetY = Math.max(1, overlay.style.size * 0.04);
-    ctx.fillText(overlay.text, padX, padY);
-  });
-
+  // Same layout + drawing the preview uses (lib/textRender.ts).
+  if (typeof document !== 'undefined' && document.fonts) await document.fonts.ready;
+  const layout = layoutText(overlay);
+  const png = await drawToCanvas(layout.width, layout.height, (ctx) =>
+    drawTextOverlay(ctx, overlay, layout),
+  );
   return {
-    png: bitmap,
+    png,
     x: Math.round(projectWidth * overlay.style.position.x),
     y: Math.round(projectHeight * overlay.style.position.y),
-    width,
-    height,
+    width: layout.width,
+    height: layout.height,
   };
 }
 

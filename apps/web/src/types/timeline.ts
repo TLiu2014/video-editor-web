@@ -195,13 +195,30 @@ export interface AudioClip extends BaseClip {
 
 export type AnyClip = VideoClip | AudioClip;
 
+/** Font presets (system stacks) — see lib/textRender.ts. */
+export type TextFont = 'sans' | 'serif' | 'mono' | 'display' | 'hand';
+
 export interface TextOverlayStyle {
-  /** Normalized 0–1 coordinates, anchored top-left of the canvas. */
+  /** Top-left of the text box, as 0–1 fractions of the frame. */
   position: { x: number; y: number };
   /** Any valid CSS color string (`#RRGGBB`, `rgba(...)`, etc.). */
   color: string;
   /** Font size in pixels at the project's native resolution. */
   size: number;
+  /* Optional styling; absent fields keep the original look. */
+  /** Default 'sans'. */
+  font?: TextFont;
+  /** 400 regular, 600 semibold (default), 800 heavy. */
+  weight?: 400 | 600 | 800;
+  italic?: boolean;
+  /** Line alignment inside the box; default 'left'. */
+  align?: 'left' | 'center' | 'right';
+  /** Soft drop shadow; default on. */
+  shadow?: boolean;
+  /** Text outline, `width` in project pixels. */
+  outline?: { color: string; width: number };
+  /** Rounded box behind the text. */
+  background?: { color: string; opacity: number };
 }
 
 export interface TextOverlay {

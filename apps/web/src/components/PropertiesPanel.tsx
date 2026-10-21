@@ -1,10 +1,13 @@
 import {
-  LayersIcon,
-  Music2Icon,
+  AlignCenterIcon,
+  AlignLeftIcon,
+  AlignRightIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   DiamondMinusIcon,
   DiamondPlusIcon,
+  LayersIcon,
+  Music2Icon,
   RotateCcwIcon,
   ShapesIcon,
   Trash2Icon,
@@ -15,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useMemo } from 'react';
 import { formatTime } from '../lib/formatTime';
+import { resolvedTextStyle, TEXT_FONTS } from '../lib/textRender';
 import {
   KEYFRAME_EPSILON,
   keyframeAt,
@@ -1115,6 +1119,13 @@ function OverlayProperties({ overlay }: { overlay: TextOverlay }) {
           />
         </div>
 
+        <TextStyleControls
+          overlay={overlay}
+          onChange={(patch) =>
+            updateOverlay(overlay.id, { style: { ...overlay.style, ...patch } })
+          }
+        />
+
         <SliderRow
           label="Duration"
           value={overlay.duration}
@@ -1277,6 +1288,164 @@ function ShapeProperties({ shape }: { shape: ShapeOverlay }) {
         />
       </div>
     </PanelShell>
+  );
+}
+
+/** Font, weight, alignment, shadow, outline and background for text. */
+function TextStyleControls({
+  overlay,
+  onChange,
+}: {
+  overlay: TextOverlay;
+  onChange: (patch: Partial<TextOverlay['style']>) => void;
+}) {
+  const r = resolvedTextStyle(overlay);
+  const seg = (active: boolean) =>
+    active
+      ? 'flex-1 rounded border border-accent bg-accent/15 px-1.5 py-1 text-[11px] text-text-primary'
+      : 'flex-1 rounded border border-border px-1.5 py-1 text-[11px] text-text-secondary transition hover:bg-chrome';
+  const label = 'text-[11px] uppercase tracking-wide text-text-muted';
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-1.5">
+        <span className={label}>Font</span>
+        <div className="grid grid-cols-3 gap-1">
+          {TEXT_FONTS.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              aria-pressed={r.font === f.id}
+              onClick={() => onChange({ font: f.id })}
+              className={seg(r.font === f.id)}
+              style={{ fontFamily: f.stack }}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="flex gap-1">
+        {(
+          [
+            [400, 'Regular'],
+            [600, 'Bold'],
+            [800, 'Heavy'],
+          ] as const
+        ).map(([w, l]) => (
+          <button
+            key={w}
+            type="button"
+            aria-pressed={r.weight === w}
+            onClick={() => onChange({ weight: w })}
+            className={seg(r.weight === w)}
+            style={{ fontWeight: w }}
+          >
+            {l}
+          </button>
+        ))}
+        <button
+          type="button"
+          aria-pressed={r.italic}
+          onClick={() => onChange({ italic: !r.italic })}
+          className={seg(r.italic)}
+          style={{ fontStyle: 'italic' }}
+        >
+          Italic
+        </button>
+      </div>
+      <div className="flex gap-1">
+        {(['left', 'center', 'right'] as const).map((a) => (
+          <button
+            key={a}
+            type="button"
+            aria-pressed={r.align === a}
+            aria-label={`Align ${a}`}
+            onClick={() => onChange({ align: a })}
+            className={seg(r.align === a)}
+          >
+            {a === 'left' ? (
+              <AlignLeftIcon className="mx-auto size-3.5" />
+            ) : a === 'center' ? (
+              <AlignCenterIcon className="mx-auto size-3.5" />
+            ) : (
+              <AlignRightIcon className="mx-auto size-3.5" />
+            )}
+          </button>
+        ))}
+        <button
+          type="button"
+          aria-pressed={r.shadow}
+          onClick={() => onChange({ shadow: !r.shadow })}
+          className={seg(r.shadow)}
+        >
+          Shadow
+        </button>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <span className={label}>Outline</span>
+        <Switch
+          checked={!!r.outline}
+          onCheckedChange={(on) =>
+            onChange({
+              outline: on
+                ? { color: '#000000', width: Math.max(2, Math.round(r.size * 0.06)) }
+                : undefined,
+            })
+          }
+          aria-label="Text outline"
+        />
+      </div>
+      {r.outline ? (
+        <>
+          <ColorRow
+            id={`ov-outline-${overlay.id}`}
+            label="Outline color"
+            value={r.outline.color}
+            onChange={(v) => onChange({ outline: { ...r.outline!, color: v } })}
+          />
+          <SliderRow
+            label="Outline width"
+            value={r.outline.width}
+            min={1}
+            max={24}
+            step={1}
+            format={(v) => `${Math.round(v)}px`}
+            onChange={(v) => onChange({ outline: { ...r.outline!, width: v } })}
+          />
+        </>
+      ) : null}
+
+      <div className="flex items-center justify-between">
+        <span className={label}>Background</span>
+        <Switch
+          checked={!!r.background}
+          onCheckedChange={(on) =>
+            onChange({ background: on ? { color: '#000000', opacity: 0.6 } : undefined })
+          }
+          aria-label="Text background"
+        />
+      </div>
+      {r.background ? (
+        <>
+          <ColorRow
+            id={`ov-bg-${overlay.id}`}
+            label="Background color"
+            value={r.background.color}
+            onChange={(v) => onChange({ background: { ...r.background!, color: v } })}
+          />
+          <SliderRow
+            label="Background opacity"
+            value={r.background.opacity}
+            min={0}
+            max={1}
+            step={0.01}
+            format={(v) => `${Math.round(v * 100)}%`}
+            onChange={(v) => onChange({ background: { ...r.background!, opacity: v } })}
+          />
+        </>
+      ) : null}
+    </div>
   );
 }
 

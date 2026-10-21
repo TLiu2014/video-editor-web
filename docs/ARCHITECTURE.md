@@ -229,6 +229,10 @@ Annotations are `ShapeOverlay`s in `project.overlays`: callout, arrow, rectangle
   - In the export, a fading overlay's single PNG frame is repeated in memory with the `loop` filter (no per-frame decode), timestamped onto the timeline from its start, and alpha-faded. Hard-cut overlays stay a single frame.
 - Because shapes live in `overlays`, In/Out range edits, snapping, undo and serialization all handle them with no special cases. `kind` is absent on older text overlays, which `isTextOverlay` treats as text.
 
+Text overlays are drawn by `lib/textRender.ts` (`layoutText`, `drawTextOverlay`) for both the preview canvas and the export PNG.
+- Styling: font preset (system font stacks, so preview and export resolve the same face), weight, italic, alignment, shadow, outline and background box. All fields are optional, so older overlays keep their original look.
+- Multi-line text is laid out the same way in both places.
+
 PiP layers on V2+ with a transform can be dragged to move them in the preview, and resized from a corner handle while selected (`PreviewOverlayLayer`). Full-frame layers stay click-through.
 
 ---
@@ -296,7 +300,6 @@ Which established editor each behavior follows. "Own" means a choice made for th
 - Annotations and text fade, but have no other animation (no motion or scale-in), and there are no blur, spotlight or sketch-motion shapes. There are no cursor or zoom-and-pan effects. Animated GIFs import as their first frame.
 - Export is single-threaded (see section 1).
 - No slip or slide tools.
-- Text overlays: no font family, weight, background or alignment; they aren't on a track.
 - Audio from clips on V2 and above is always muted (preview and export).
 - PiP has no on-canvas rotate handle and no snapping or guides.
 - The library doesn't detect duplicate imports or show file size, and has no folders (bins).

@@ -302,10 +302,14 @@ A new overlay appears at the playhead with default text **“Sample text”**, w
 
 **Edit text:** Select the overlay by clicking it in the preview or its bar in the timeline's overlay lane. In **Properties → Text Overlay**, change:
 
-- Text content
-- Position (X / Y)
-- Size
-- Color
+- Text content. Press Shift+Enter for a new line; multi-line text exports as shown.
+- Position (X / Y), Size, Color
+- **Font:** Sans, Serif, Mono, Display or Handwritten. These use fonts installed on your computer, so the preview and export always match.
+- **Weight:** Regular, Bold or Heavy, plus **Italic**.
+- **Alignment:** left, center or right, for lines within the text box.
+- **Shadow:** a soft drop shadow, on by default.
+- **Outline:** a colored stroke around the letters, with adjustable width. Good for keeping text readable over busy footage.
+- **Background:** a rounded box behind the text, with color and opacity.
 - Duration (how long it stays on screen)
 - Fade in / fade out
 

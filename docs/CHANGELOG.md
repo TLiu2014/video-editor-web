@@ -8,7 +8,11 @@ Status of the remaining gaps is tracked at the bottom.
 
 ## 2026-10-21
 
-### Track lock and track height
+### Text styling
+- Text overlays get a font (Sans, Serif, Mono, Display, Handwritten), weight (Regular, Bold, Heavy), italic, alignment, drop shadow, outline (color and width) and a background box (color and opacity).
+- Fix: multi-line text now exports as multiple lines. Before, the preview showed the lines but the export drew them on one line. Preview and export now use the same canvas renderer.
+
+### Track lock and track height — `79eeede`
 - **Lock** (padlock in the track header): a locked track's clips can't be selected, moved, trimmed, split or deleted. Nothing can be dropped, pasted or moved onto it, and range edits, close gaps and split-all skip it. Locked tracks are striped. This follows Premiere's track lock.
 - **Height** (↕ in the track header): cycles normal, tall and compact for each track. Thumbnails, waveforms and labels fit the row, and the setting is saved with the project.
 
@@ -61,6 +65,6 @@ Status of the remaining gaps is tracked at the bottom.
 |---|---|
 | JKL playback | Done (this release) |
 | Track lock and track height | Done (this release) |
-| Text styling (font, weight, alignment, background, outline) | Planned next |
+| Text styling (font, weight, alignment, background, outline) | Done (this release) |
 | Keyframes for PiP and annotations | Not started |
 | Deployment of the editor and marketing site | Needs a decision on where to host |

@@ -1,5 +1,5 @@
 import { FilmIcon, UploadIcon } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { routeMediaElement } from '../lib/audioGraph';
 import { clipRate } from '../lib/clipRate';
 import { clipCssFilter } from '../lib/effects';
@@ -16,6 +16,7 @@ import {
 } from '../lib/shapes';
 import { mediaRateFactor, mediaShouldPlay } from '../lib/shuttle';
 import { stillUrl } from '../lib/stills';
+import { drawTextOverlay, layoutText } from '../lib/textRender';
 import { transitionAt } from '../lib/transitions';
 import { sampleZoom, sourceTimeAt, zoomCssTransform } from '../lib/zoomPan';
 import { useTimelineStore } from '../store/useTimelineStore';
@@ -564,6 +565,7 @@ function DraggableOverlay({
   const selectOverlay = useTimelineStore((s) => s.selectOverlay);
   const updateOverlay = useTimelineStore((s) => s.updateOverlay);
   const dragRef = useRef<DragRef | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [dragging, setDragging] = useState(false);
   const selected = selectedOverlayId === overlay.id;
 
@@ -608,32 +610,46 @@ function DraggableOverlay({
     setDragging(false);
   };
 
+  // Drawn by the same routine the export rasterizes with. Memoized so
+  // playhead ticks (which re-render this list) don't redraw it.
+  const layout = useMemo(() => layoutText(overlay), [overlay]);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.max(1, Math.round(layout.width * scale * dpr));
+    canvas.height = Math.max(1, Math.round(layout.height * scale * dpr));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.setTransform(scale * dpr, 0, 0, scale * dpr, 0, 0);
+    ctx.clearRect(0, 0, layout.width, layout.height);
+    drawTextOverlay(ctx, overlay, layout);
+  }, [overlay, scale, layout]);
+
   return (
     <div
+      data-text-overlay
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
-      className={`pointer-events-auto absolute select-none whitespace-pre ${
+      className={`pointer-events-auto absolute select-none ${
         dragging ? 'cursor-grabbing' : 'cursor-move'
       } ${
         selected
-          ? 'outline outline-2 outline-offset-2 outline-accent'
+          ? 'outline outline-2 outline-offset-0 outline-accent'
           : ''
       }`}
       style={{
         left: `${overlay.style.position.x * 100}%`,
         top: `${overlay.style.position.y * 100}%`,
+        width: layout.width * scale,
+        height: layout.height * scale,
         opacity,
-        color: overlay.style.color,
-        fontSize: `${overlay.style.size * scale}px`,
-        lineHeight: 1.1,
-        fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
-        fontWeight: 600,
-        textShadow: '0 2px 8px rgba(0,0,0,0.6)',
       }}
+      title={overlay.text}
     >
-      {overlay.text}
+      <canvas ref={canvasRef} className="pointer-events-none h-full w-full" />
     </div>
   );
 }

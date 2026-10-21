@@ -322,6 +322,28 @@ await page.keyboard.press('Escape'); await wait();
   ok('K+L steps one frame', Math.abs(t4 - t3 - 1 / 30) < 0.02, `${t3} → ${t4}`);
 }
 
+// Text styling: two-line text with a background box at 7.5s (over
+// clipB, away from the zoom and the transition).
+{
+  await page.$eval('[data-timeline-surface]', (el) => { el.parentElement.scrollLeft = 0; }); await wait(200);
+  const sf = await (await page.$('[data-timeline-surface]')).boundingBox();
+  await page.mouse.click(sf.x + 7.5 * 80, sf.y + 8); await wait(250);
+  await page.keyboard.press('KeyT'); await wait(400);
+  const oneLine = (await (await page.$('[data-text-overlay]')).boundingBox()).height;
+  const area = await page.$('textarea');
+  await area.click({ clickCount: 3 });
+  await page.keyboard.type('Line one');
+  await page.keyboard.down('Shift'); await page.keyboard.press('Enter'); await page.keyboard.up('Shift');
+  await page.keyboard.type('Line two'); await wait(300);
+  const twoLines = (await (await page.$('[data-text-overlay]')).boundingBox()).height;
+  ok('multi-line text grows the preview box', twoLines > oneLine * 1.6, `${oneLine} → ${twoLines}`);
+  await (await page.$('[aria-label="Text background"]')).click(); await wait(300);
+  const withBg = (await (await page.$('[data-text-overlay]')).boundingBox()).height;
+  ok('background adds padding around the text', withBg > twoLines, `${twoLines} → ${withBg}`);
+  await page.mouse.click(sf.x + 1 * 80, sf.y + 8); await wait(200);
+  await page.keyboard.press('Escape'); await wait();
+}
+
 // Export through ffmpeg.wasm and wait for the download button.
 await page.keyboard.down('Meta'); await page.keyboard.press('KeyE'); await page.keyboard.up('Meta'); await wait(500);
 await page.waitForFunction(() => [...document.querySelectorAll('button')].some((b) => b.textContent?.includes('Start export') && !b.disabled), { timeout: 60000 });
@@ -354,6 +376,14 @@ if (exported) {
     '-vf', 'crop=2:2:710:345', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']).subarray(0, 3)];
   const during = px(3);
   const before = px(1);
+  // The text box (top-left at 10% / 85% of 1920×1080) darkens clipB's
+  // bars behind it while it's on screen (7.5s–10.5s).
+  const pxAt = (t, x, y) => [...execFileSync('ffmpeg', ['-loglevel', 'error', '-ss', String(t), '-i', outPath, '-frames:v', '1',
+    '-vf', `crop=2:2:${x}:${y}`, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']).subarray(0, 3)];
+  const lum = (p) => p[0] + p[1] + p[2];
+  const bgOn = pxAt(9, 200, 930);
+  const bgOff = pxAt(7.2, 200, 930);
+  ok('text background box is burned into the export', lum(bgOff) > 60 && lum(bgOn) < lum(bgOff) * 0.7, `on ${bgOn} off ${bgOff}`);
   ok('callout is burned into the export at its retimed span', Math.min(...during) > 215 && Math.min(...before) <= 215,
     `during ${during} before ${before}`);
 }
