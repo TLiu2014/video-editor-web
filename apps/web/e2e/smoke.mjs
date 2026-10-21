@@ -18,6 +18,7 @@ ff(['-f', 'lavfi', '-i', 'testsrc=size=640x360:rate=30', '-f', 'lavfi', '-i', 's
   '-t', '6', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', join(MEDIA, 'clipA.mp4')]);
 ff(['-f', 'lavfi', '-i', 'smptebars=size=640x360:rate=30', '-t', '4',
   '-c:v', 'libx264', '-pix_fmt', 'yuv420p', join(MEDIA, 'clipB.mp4')]);
+ff(['-f', 'lavfi', '-i', 'color=c=green:s=640x360', '-frames:v', '1', join(MEDIA, 'card.png')]);
 
 let failures = 0;
 const browser = await puppeteer.launch({
@@ -25,6 +26,12 @@ const browser = await puppeteer.launch({
   headless: 'new', defaultViewport: { width: 1440, height: 900 },
 });
 const page = await browser.newPage();
+// Keep the tail of the console so a failed export shows ffmpeg's log.
+const consoleTail = [];
+page.on('console', (m) => {
+  consoleTail.push(m.text());
+  if (consoleTail.length > 60) consoleTail.shift();
+});
 page.on('pageerror', (e) => {
   // ffmpeg.wasm logs a benign terminate() on teardown.
   if (/terminate/.test(e.message)) return;
@@ -35,7 +42,8 @@ await page.goto(URL, { waitUntil: 'networkidle0' });
 const wait = (ms = 250) => new Promise((r) => setTimeout(r, ms));
 const btn = async (t) => (await page.$$(`xpath/.//button[contains(., "${t}")]`))[0];
 await (await btn('start blank')).click(); await wait(400);
-await (await page.$('input[type=file][accept="video/*,audio/*"]')).uploadFile(`${MEDIA}/clipA.mp4`, `${MEDIA}/clipB.mp4`);
+const mediaInput = () => page.$('input[type=file][accept^="video/*"]');
+await (await mediaInput()).uploadFile(`${MEDIA}/clipA.mp4`, `${MEDIA}/clipB.mp4`);
 await page.waitForFunction(() => document.body.innerText.includes('clipB.mp4'), { timeout: 15000 });
 for (const i of [0, 1]) {
   const row = (await page.$$('li[draggable]'))[i];
@@ -167,5 +175,70 @@ const last = (await page.$$('[data-track-id] > div[title]'))[0];
 const lb = await last.boundingBox();
 await page.mouse.click(lb.x + lb.width / 2, lb.y + 20, { button: 'right' }); await wait();
 ok('context menu opens', !!(await page.$('[role=menu]')));
+// --- Fresh project: stills + transitions + a real ffmpeg.wasm export.
+await page.keyboard.down('Meta'); await page.keyboard.press('KeyK'); await page.keyboard.up('Meta'); await wait();
+await page.keyboard.type('New Project'); await wait(); await page.keyboard.press('Enter'); await wait(500);
+await (await mediaInput()).uploadFile(`${MEDIA}/clipA.mp4`, `${MEDIA}/clipB.mp4`, `${MEDIA}/card.png`);
+await page.waitForFunction(() => document.body.innerText.includes('card.png'), { timeout: 15000 });
+ok('image imports as an Image item', await page.evaluate(() => document.body.innerText.includes('Image')));
+for (const name of ['clipA', 'clipB', 'card']) {
+  const row = (await page.$$('li[draggable]')).find(async () => true);
+  for (const r of await page.$$('li[draggable]')) {
+    if ((await r.evaluate((e) => e.title)).startsWith(name)) {
+      await r.hover();
+      await (await r.$('button[title="Add to timeline at playhead"]')).click(); await wait();
+    }
+  }
+  void row;
+}
+l = await layout();
+ok('A, B, still appended on V1', JSON.stringify(l[0].clips) === JSON.stringify(['clipA.mp4@0.00', 'clipB.mp4@6.00', 'card.png@10.00']), JSON.stringify(l[0].clips));
+// Add a transition at the A|B cut via the hover "+".
+const v1Row = (await page.$$('[data-track-id]'))[0];
+await v1Row.hover(); await wait();
+const plus = (await v1Row.$$('button[aria-label="Add transition"]'))[0];
+await plus.click(); await wait();
+ok('transition band appears', !!(await page.$('[data-transition-band]')));
+ok('Properties shows the transition', await page.evaluate(() => document.body.innerText.toLowerCase().includes('transition in')));
+// Playhead mid-transition (cut at 6s, 1s dissolve → 6.25s = 75%).
+const surf = await (await page.$('[data-timeline-surface]')).boundingBox();
+await page.mouse.click(surf.x + 6.25 * 80, surf.y + 8); await wait(600);
+const opacities = await page.evaluate(() =>
+  [...document.querySelectorAll('video, img')].map((el) => el.style.opacity).filter((o) => o !== '' && o !== '0'),
+);
+ok('preview blends two layers mid-transition', opacities.length >= 2, JSON.stringify(opacities));
+// Playhead on the still.
+await page.mouse.click(surf.x + 12 * 80, surf.y + 8); await wait(400);
+const stillShown = await page.evaluate(() =>
+  [...document.querySelectorAll('img')].some((i) => i.style.opacity === '1' && i.src.startsWith('blob:')),
+);
+ok('still shows in preview', stillShown);
+// Export through ffmpeg.wasm and wait for the download button.
+await page.keyboard.down('Meta'); await page.keyboard.press('KeyE'); await page.keyboard.up('Meta'); await wait(500);
+await page.waitForFunction(() => [...document.querySelectorAll('button')].some((b) => b.textContent?.includes('Start export') && !b.disabled), { timeout: 60000 });
+await (await btn('Start export')).click();
+const exported = await page
+  .waitForFunction(() => document.body.innerText.includes('Download'), { timeout: 180000 })
+  .then(() => true, () => false);
+ok('ffmpeg.wasm export with still + transition succeeds', exported);
+if (!exported) console.log(consoleTail.slice(-40).join('\n'));
+if (exported) {
+  // Pull the MP4 out of the page and check it: A(6s) + B(4s) + still(5s)
+  // = 15s — the dissolve must not change the length.
+  const b64 = await page.evaluate(async () => {
+    const a = [...document.querySelectorAll('a[download]')].pop();
+    const buf = await (await fetch(a.href)).arrayBuffer();
+    let bin = '';
+    const bytes = new Uint8Array(buf);
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return btoa(bin);
+  });
+  const outPath = join(MEDIA, 'export.mp4');
+  writeFileSync(outPath, Buffer.from(b64, 'base64'));
+  const probe = execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration:stream=codec_name', '-of', 'csv=p=0', outPath]).toString();
+  const duration = parseFloat(probe.trim().split('\n').pop());
+  ok('exported MP4 is H.264 + AAC, 15s long', /h264/.test(probe) && /aac/.test(probe) && Math.abs(duration - 15) < 0.2, probe.replace(/\n/g, ' '));
+}
+
 await browser.close();
 process.exit(failures === 0 ? 0 : 1);

@@ -10,6 +10,14 @@ import {
 } from 'lucide-react';
 import { useMemo } from 'react';
 import { formatTime } from '../lib/formatTime';
+import {
+  baseTrackClips,
+  DEFAULT_TRANSITION_DURATION,
+  maxTransitionDuration,
+  MIN_TRANSITION_DURATION,
+  previousTouching,
+  TRANSITIONS,
+} from '../lib/transitions';
 import { useLayoutStore } from '../store/useLayoutStore';
 import { useTimelineStore } from '../store/useTimelineStore';
 import type {
@@ -274,13 +282,17 @@ function ClipProperties({ clip }: { clip: AnyClip }) {
           <VolumeControl clip={clip} />
         ) : (
           <>
-            <HasAudioControl clip={clip} />
+            {/* A still has no audio and no source time to speed up. */}
+            {clip.still ? null : <HasAudioControl clip={clip} />}
             <EffectsControl clip={clip} />
             <PiPTransformControl clip={clip} />
           </>
         )}
+        {clip.kind === 'video' ? <TransitionControl clip={clip} /> : null}
         <FadeControls clip={clip} />
-        <SpeedControl clip={clip} />
+        {clip.kind === 'video' && clip.still ? null : (
+          <SpeedControl clip={clip} />
+        )}
         <ColorControl clip={clip} />
       </div>
     </PanelShell>
@@ -312,7 +324,7 @@ function ClipIdentity({ clip }: { clip: AnyClip }) {
           {clip.name}
         </div>
         <div className="font-mono text-[10px] uppercase tracking-wide text-text-muted">
-          {clip.kind} clip
+          {clip.kind === 'video' && clip.still ? 'image' : clip.kind} clip
         </div>
       </div>
     </div>
@@ -324,13 +336,17 @@ function ReadonlyMetrics({ clip }: { clip: AnyClip }) {
     <dl className="grid grid-cols-2 gap-y-2.5 gap-x-4 text-[12px]">
       <MetricRow label="Timeline" value={formatTime(clip.startOffset)} />
       <MetricRow label="Duration" value={formatTime(clip.duration)} />
-      <MetricRow label="In" value={formatTime(clip.trimStart)} />
-      <MetricRow label="Out" value={formatTime(clip.trimEnd)} />
-      <MetricRow
-        label="Source"
-        value={formatTime(clip.sourceDuration)}
-        className="col-span-2"
-      />
+      {clip.kind === 'video' && clip.still ? null : (
+        <>
+          <MetricRow label="In" value={formatTime(clip.trimStart)} />
+          <MetricRow label="Out" value={formatTime(clip.trimEnd)} />
+          <MetricRow
+            label="Source"
+            value={formatTime(clip.sourceDuration)}
+            className="col-span-2"
+          />
+        </>
+      )}
     </dl>
   );
 }
@@ -436,6 +452,96 @@ function SpeedControl({ clip }: { clip: AnyClip }) {
         Audio rates outside 0.5–2× chain `atempo` stages to
         preserve pitch.
       </p>
+    </div>
+  );
+}
+
+/**
+ * Transition into this clip from the clip touching its left edge on
+ * V1. Hidden for clips that have no such neighbor.
+ */
+function TransitionControl({ clip }: { clip: VideoClip }) {
+  const project = useTimelineStore((s) => s.currentProject);
+  const setClipTransitionIn = useTimelineStore((s) => s.setClipTransitionIn);
+  const clips = useMemo(
+    () => (project ? baseTrackClips(project) : []),
+    [project],
+  );
+  const prev = clips.some((c) => c.id === clip.id)
+    ? previousTouching(clips, clip)
+    : null;
+  if (!prev) return null;
+  const t = clip.transitionIn;
+  const max = maxTransitionDuration(prev, clip);
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <label className="text-[11px] uppercase tracking-wide text-text-muted">
+          Transition in
+        </label>
+        {t ? (
+          <button
+            type="button"
+            onClick={() => setClipTransitionIn(clip.id, null)}
+            className="text-[11px] text-text-muted transition hover:text-danger"
+          >
+            Remove
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() =>
+              setClipTransitionIn(clip.id, {
+                kind: 'dissolve',
+                duration: DEFAULT_TRANSITION_DURATION,
+              })
+            }
+            className="text-[11px] text-text-muted transition hover:text-text-primary"
+            title="Add a transition from the previous clip (⌘D)"
+          >
+            Add transition
+          </button>
+        )}
+      </div>
+      {t ? (
+        <>
+          <div className="grid grid-cols-2 gap-1.5">
+            {TRANSITIONS.map((spec) => (
+              <button
+                key={spec.kind}
+                type="button"
+                aria-pressed={t.kind === spec.kind}
+                onClick={() =>
+                  setClipTransitionIn(clip.id, { ...t, kind: spec.kind })
+                }
+                className={
+                  t.kind === spec.kind
+                    ? 'rounded border border-accent bg-accent/15 px-2 py-1 text-left text-[11px] text-text-primary'
+                    : 'rounded border border-border px-2 py-1 text-left text-[11px] text-text-secondary transition hover:bg-chrome'
+                }
+              >
+                {spec.label}
+              </button>
+            ))}
+          </div>
+          <SliderRow
+            label="Duration"
+            value={Math.min(t.duration, max)}
+            min={MIN_TRANSITION_DURATION}
+            max={max}
+            step={0.05}
+            format={(v) => `${v.toFixed(2)}s`}
+            onChange={(v) =>
+              setClipTransitionIn(clip.id, { ...t, duration: v })
+            }
+          />
+          <p className="text-[11px] leading-relaxed text-text-muted">
+            Centered on the cut with “{prev.name}”. Frames beyond each
+            clip’s trim are used when available; otherwise the edge frame
+            is held.
+          </p>
+        </>
+      ) : null}
     </div>
   );
 }

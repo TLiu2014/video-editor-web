@@ -18,6 +18,15 @@ export type MediaId = string;
 
 export type TrackKind = 'video' | 'audio';
 
+/** Video transitions between touching V1 clips — see lib/transitions.ts. */
+export type TransitionKind =
+  | 'dissolve'
+  | 'fadeblack'
+  | 'wipeleft'
+  | 'wiperight'
+  | 'slideleft'
+  | 'slideright';
+
 /**
  * One imported source file in the project's media library (the
  * "Media Bin" in Camtasia, the "Project panel" in Premiere). Clips on
@@ -36,6 +45,12 @@ export interface MediaAsset {
   duration: number;
   /** Video only — see `VideoClip.hasAudio`. Always true for audio assets. */
   hasAudio: boolean;
+  /**
+   * A still image (PNG / JPEG / WebP; other formats are rasterized to
+   * PNG on import). Lives on video tracks like footage, but has no
+   * intrinsic length: `duration` is the default clip length.
+   */
+  still?: boolean;
   /** Epoch ms of import. Drives the library's default sort order. */
   importedAt: number;
 }
@@ -130,6 +145,18 @@ export interface VideoClipTransform {
 
 export interface VideoClip extends BaseClip {
   kind: 'video';
+  /**
+   * Cut from a still-image asset. Source time is meaningless for a
+   * still, so `sourceDuration` is a generous cap (STILL_MAX_DURATION)
+   * that lets the clip be trimmed out to any length up to it.
+   */
+  still?: boolean;
+  /**
+   * Transition from the previous touching clip on V1 into this one,
+   * centered on the cut. Ignored while no clip touches this one's
+   * left edge, or on tracks other than V1.
+   */
+  transitionIn?: { kind: TransitionKind; duration: number };
   /**
    * Best-effort probe at import time. When false, the export pipeline
    * substitutes silence for this clip's audio span instead of

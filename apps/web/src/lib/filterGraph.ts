@@ -1,5 +1,10 @@
 import { clipRate, ffmpegAtempoChain } from './clipRate';
 import { ffmpegEffectFilters } from './effects';
+import {
+  effectiveTransitionIn,
+  MAX_TRANSITION_DURATION,
+  transitionSpec,
+} from './transitions';
 import { isTrackAudible } from './trackAudibility';
 import type { AudioFormat } from '../types/stt';
 import type {
@@ -37,6 +42,12 @@ const VIDEO_EXT_BY_TYPE: Record<string, string> = {
   'video/x-msvideo': 'avi',
 };
 
+const IMAGE_EXT_BY_TYPE: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/webp': 'webp',
+};
+
 const AUDIO_EXT_BY_TYPE: Record<string, string> = {
   'audio/mpeg': 'mp3',
   'audio/mp4': 'm4a',
@@ -50,7 +61,9 @@ const AUDIO_EXT_BY_TYPE: Record<string, string> = {
 
 function chooseExt(file: File): string {
   const fromType =
-    VIDEO_EXT_BY_TYPE[file.type] ?? AUDIO_EXT_BY_TYPE[file.type];
+    VIDEO_EXT_BY_TYPE[file.type] ??
+    IMAGE_EXT_BY_TYPE[file.type] ??
+    AUDIO_EXT_BY_TYPE[file.type];
   if (fromType) return fromType;
   const dotIdx = file.name.lastIndexOf('.');
   if (dotIdx >= 0) return file.name.slice(dotIdx + 1).toLowerCase();
@@ -70,8 +83,12 @@ export interface ExportOptions {
 }
 
 export interface ExportPlan {
-  /** Media inputs in argv order — these get written via fetchFile. */
-  inputs: { name: string; file: File }[];
+  /**
+   * Media inputs in argv order — these get written via fetchFile.
+   * `inputArgs` go right before that input's `-i` (still images are
+   * looped into a stream this way).
+   */
+  inputs: { name: string; file: File; inputArgs?: string[] }[];
   /**
    * Overlay PNG inputs in argv order, appended after media inputs.
    * The hook is responsible for rasterizing each `overlay` and
@@ -111,14 +128,26 @@ function concatStmt(
   return `${refs}concat=n=${labels.length}:v=${kind === 'v' ? 1 : 0}:a=${kind === 'a' ? 1 : 0}[${outLabel}]`;
 }
 
-function videoFadeSuffix(clip: VideoClip): string {
+/**
+ * Per-clip fade filters. On V1 a fade goes to black. On overlay
+ * tracks (`alpha`) it fades the layer's alpha instead, so the base
+ * shows through — matching the preview, which fades opacity. Fade
+ * start times are local to the clip, which on overlay tracks has
+ * its PTS shifted by `startOffset`, hence `offset`.
+ */
+function videoFadeSuffix(clip: VideoClip, alpha = false, offset = 0): string {
   const parts: string[] = [];
+  const a = alpha ? ':alpha=1' : '';
   if (clip.fadeIn > 0) {
-    parts.push(`fade=t=in:st=0:d=${clip.fadeIn.toFixed(3)}`);
+    parts.push(
+      `fade=t=in:st=${offset.toFixed(3)}:d=${clip.fadeIn.toFixed(3)}${a}`,
+    );
   }
   if (clip.fadeOut > 0) {
-    const start = Math.max(0, clip.duration - clip.fadeOut);
-    parts.push(`fade=t=out:st=${start.toFixed(3)}:d=${clip.fadeOut.toFixed(3)}`);
+    const start = offset + Math.max(0, clip.duration - clip.fadeOut);
+    parts.push(
+      `fade=t=out:st=${start.toFixed(3)}:d=${clip.fadeOut.toFixed(3)}${a}`,
+    );
   }
   return parts.length === 0 ? '' : ',' + parts.join(',');
 }
@@ -139,6 +168,18 @@ function audioFadeSuffix(
   return parts.length === 0 ? '' : ',' + parts.join(',');
 }
 
+/**
+ * V1 video. Clips that touch and carry an effective `transitionIn`
+ * are chained into one "run" with `xfade`; runs and black gap
+ * segments are then concatenated in order.
+ *
+ * For a transition of length d centered on a cut, the outgoing clip is
+ * extended by d/2 past its out-point and the incoming one starts d/2
+ * before its in-point. `xfade` overlaps them by d, so the run's length
+ * equals the sum of the clips' timeline durations — transitions never
+ * shift anything. Source media beyond the trim is used when it exists;
+ * otherwise `tpad` holds the edge frame for the missing part.
+ */
 function buildVideoSegments(
   clips: VideoClip[],
   clipInputIndex: Map<string, number>,
@@ -148,21 +189,48 @@ function buildVideoSegments(
 ): SegmentList {
   const parts: string[] = [];
   const labels: string[] = [];
+  const transitionsIn = clips.map((c) => effectiveTransitionIn(clips, c));
   let cursor = 0;
+  let run: { label: string; length: number } | null = null;
+  const flush = () => {
+    if (run) labels.push(run.label);
+    run = null;
+  };
 
   clips.forEach((clip, i) => {
-    const gap = clip.startOffset - cursor;
-    if (gap > GAP_EPSILON_S) {
-      const gapLabel = `vg${i}`;
-      parts.push(
-        `color=black:s=${width}x${height}:r=${fps}:d=${gap.toFixed(3)}[${gapLabel}]`,
-      );
-      labels.push(gapLabel);
-    }
     const inputIdx = clipInputIndex.get(clip.id);
     if (inputIdx === undefined) return;
-    const vLabel = `v${i}`;
+    const tIn = run ? transitionsIn[i] : null;
+    if (!tIn) {
+      flush();
+      const gap = clip.startOffset - cursor;
+      if (gap > GAP_EPSILON_S) {
+        const gapLabel = `vg${i}`;
+        parts.push(
+          `color=black:s=${width}x${height}:r=${fps}:d=${gap.toFixed(3)},settb=AVTB[${gapLabel}]`,
+        );
+        labels.push(gapLabel);
+      }
+    }
+    const tOut = transitionsIn[i + 1];
+    const pre = tIn ? tIn.duration / 2 : 0;
+    const post = tOut && tOut.outgoing.id === clip.id ? tOut.duration / 2 : 0;
+
     const rate = clipRate(clip);
+    const wantStart = clip.trimStart - pre * rate;
+    const wantEnd = clip.trimEnd + post * rate;
+    const srcStart = Math.max(0, wantStart);
+    // Stills are looped streams, so they never run out.
+    const srcEnd = clip.still ? wantEnd : Math.min(clip.sourceDuration, wantEnd);
+    const holdPre = (srcStart - wantStart) / rate;
+    const holdPost = (wantEnd - srcEnd) / rate;
+    const tpad =
+      holdPre > GAP_EPSILON_S || holdPost > GAP_EPSILON_S
+        ? `,tpad=start_mode=clone:start_duration=${holdPre.toFixed(3)}` +
+          `:stop_mode=clone:stop_duration=${holdPost.toFixed(3)}`
+        : '';
+
+    const vLabel = `v${i}`;
     // setpts divides the trimmed segment's presentation timestamps
     // by the playback rate, so a rate of 2 makes each source-second
     // present in 0.5 timeline-seconds (fast forward). rate < 1
@@ -170,18 +238,35 @@ function buildVideoSegments(
     const setptsExpr =
       rate === 1 ? 'PTS-STARTPTS' : `(PTS-STARTPTS)/${rate.toFixed(3)}`;
     parts.push(
-      `[${inputIdx}:v]trim=start=${clip.trimStart.toFixed(3)}:end=${clip.trimEnd.toFixed(3)},` +
+      `[${inputIdx}:v]trim=start=${srcStart.toFixed(3)}:end=${srcEnd.toFixed(3)},` +
         `setpts=${setptsExpr},` +
         `scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
         `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,` +
         `fps=${fps},format=yuv420p` +
+        tpad +
         (clip.effects ? ffmpegEffectFilters(clip.effects) : '') +
-        videoFadeSuffix(clip) +
-        `[${vLabel}]`,
+        // Fades are relative to the clip's own edges, after any pre-roll.
+        videoFadeSuffix(clip, false, pre) +
+        // xfade needs matching timebases on both inputs.
+        `,settb=AVTB[${vLabel}]`,
     );
-    labels.push(vLabel);
+    const segLength = pre + clip.duration + post;
+
+    const current = run as { label: string; length: number } | null;
+    if (tIn && current) {
+      const outLabel = `vx${i}`;
+      parts.push(
+        `[${current.label}][${vLabel}]xfade=transition=${transitionSpec(tIn.kind).xfade}` +
+          `:duration=${tIn.duration.toFixed(3)}` +
+          `:offset=${(current.length - tIn.duration).toFixed(3)}[${outLabel}]`,
+      );
+      run = { label: outLabel, length: current.length + segLength - tIn.duration };
+    } else {
+      run = { label: vLabel, length: segLength };
+    }
     cursor = clip.startOffset + clip.duration;
   });
+  flush();
 
   return { parts, labels };
 }
@@ -336,9 +421,11 @@ export function buildExportPlan(
   // Map each clip's source File to a virtual input. Two clips that
   // reference the same File still get separate inputs — FFmpeg can
   // tolerate the duplicate and the FS layer dedupes via filename.
-  const inputs: { name: string; file: File }[] = [];
+  const inputs: { name: string; file: File; inputArgs?: string[] }[] = [];
   const clipInputIndex = new Map<string, number>();
   const seenFiles = new Map<File, number>();
+  // How far into each still's looped stream any clip reads.
+  const stillReach = new Map<number, number>();
 
   for (const clip of [
     ...videoClips,
@@ -352,6 +439,22 @@ export function buildExportPlan(
       seenFiles.set(clip.file, idx);
     }
     clipInputIndex.set(clip.id, idx);
+    if (clip.kind === 'video' && clip.still) {
+      stillReach.set(idx, Math.max(stillReach.get(idx) ?? 0, clip.trimEnd));
+    }
+  }
+  // A still becomes a constant-frame-rate stream long enough for the
+  // furthest trim that reads it — plus room for a transition's
+  // run-out and a second of slack — after which the clip's `trim`
+  // cuts it exactly like footage.
+  for (const [idx, reach] of stillReach) {
+    const input = inputs[idx];
+    if (!input) continue;
+    input.inputArgs = [
+      '-loop', '1',
+      '-framerate', String(fps),
+      '-t', (reach + MAX_TRANSITION_DURATION / 2 + 1).toFixed(3),
+    ];
   }
 
   const video = buildVideoSegments(
@@ -434,17 +537,18 @@ export function buildExportPlan(
         layerOpacity !== undefined && layerOpacity < 1
           ? `,format=rgba,colorchannelmixer=aa=${layerOpacity.toFixed(3)}`
           : '';
-      // yuv420p is the safe pixel format for x264, but rotate/opacity
-      // need an alpha plane upstream. The overlay filter
+      // Overlay layers carry alpha (yuva420p) so transparent stills
+      // (logos) and alpha fades composite over the base; rotate and
+      // opacity switch to rgba themselves. The overlay filter
       // re-quantizes to the base layer's format on composite.
-      const pixFmt = rotateFilter || opacityFilter ? '' : ',format=yuv420p';
+      const pixFmt = rotateFilter || opacityFilter ? '' : ',format=yuva420p';
       filterParts.push(
         `[${inputIdx}:v]trim=start=${clip.trimStart.toFixed(3)}:end=${clip.trimEnd.toFixed(3)},` +
           `setpts=${setptsExpr},` +
           `${scaleAndPad},` +
           `fps=${fps}${pixFmt}` +
           (clip.effects ? ffmpegEffectFilters(clip.effects) : '') +
-          videoFadeSuffix(clip) +
+          videoFadeSuffix(clip, true, clip.startOffset) +
           rotateFilter +
           opacityFilter +
           `[${segLabel}]`,
@@ -528,7 +632,7 @@ export function buildExportPlan(
 
   const args: string[] = [];
   for (const input of inputs) {
-    args.push('-i', input.name);
+    args.push(...(input.inputArgs ?? []), '-i', input.name);
   }
   for (const ov of overlayInputs) {
     args.push('-i', ov.name);

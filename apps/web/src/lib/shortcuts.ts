@@ -33,6 +33,7 @@ export const SHORTCUT_GROUPS: { title: string; items: ShortcutEntry[] }[] = [
       { keys: ['Q', 'W'], label: 'Trim clip start / end to playhead', origin: 'Premiere (ripples there)' },
       { keys: ['⇧Q', '⇧W'], label: 'Ripple trim start / end to playhead' },
       { keys: [`${MOD}J`], label: 'Join clips' },
+      { keys: [`${MOD}D`], label: 'Add transition at the nearest cut (V1)', origin: 'Premiere' },
       { keys: ['⌫'], label: 'Delete selection' },
       { keys: ['⇧⌫'], label: 'Ripple delete selection', origin: 'Premiere' },
       { keys: [`${MOD}X`, `${MOD}C`, `${MOD}V`], label: 'Cut / copy / paste at playhead' },

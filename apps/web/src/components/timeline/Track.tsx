@@ -1,19 +1,26 @@
 import clsx from 'clsx';
-import { Music2Icon, VideoIcon, XIcon } from 'lucide-react';
+import { BlendIcon, Music2Icon, PlusIcon, VideoIcon, XIcon } from 'lucide-react';
 import { useState } from 'react';
 import {
   chooseMajorInterval,
   collectSnapTargets,
   findNearestTarget,
 } from '../../lib/snapping';
+import { addTransitionInto } from '../../lib/editActions';
 import { importFilesToLibrary } from '../../lib/importMedia';
+import {
+  effectiveTransitionIn,
+  previousTouching,
+  transitionSpec,
+} from '../../lib/transitions';
 import { useTimelineStore } from '../../store/useTimelineStore';
 import { MEDIA_DRAG_TYPE } from '../MediaLibrary';
 import {
   getPixelsPerSecond,
+  usePixelsPerSecond,
   useTimelineViewStore,
 } from '../../store/useTimelineViewStore';
-import type { TimelineTrack } from '../../types/timeline';
+import type { TimelineTrack, VideoClip } from '../../types/timeline';
 import { Clip } from './Clip';
 import { SNAP_THRESHOLD_PX, TRACK_HEIGHT_AUDIO, TRACK_HEIGHT_VIDEO } from './constants';
 
@@ -155,6 +162,7 @@ export function Track({
       {track.clips.map((clip) => (
         <Clip key={clip.id} clip={clip} />
       ))}
+      {isVideo && index === 1 ? <TransitionMarkers track={track} /> : null}
       {reorderAtPx !== null ? (
         <div
           className="pointer-events-none absolute inset-y-0 z-40 w-[3px] -translate-x-1/2 rounded bg-accent shadow-[0_0_6px] shadow-accent"
@@ -162,6 +170,74 @@ export function Track({
         />
       ) : null}
     </div>
+  );
+}
+
+/**
+ * V1 only: a band over each transition (click to edit it in
+ * Properties) and, on hover, a "+" on every bare cut between touching
+ * clips to add the default transition there.
+ */
+function TransitionMarkers({ track }: { track: TimelineTrack }) {
+  const pps = usePixelsPerSecond();
+  const selectedClipId = useTimelineStore((s) => s.selectedClipId);
+  const clips = (track.clips as VideoClip[])
+    .filter((c) => c.kind === 'video')
+    .sort((a, b) => a.startOffset - b.startOffset);
+  return (
+    <>
+      {clips.map((clip) => {
+        if (!previousTouching(clips, clip)) return null;
+        const t = effectiveTransitionIn(clips, clip);
+        const cutPx = clip.startOffset * pps;
+        if (!t) {
+          return (
+            <button
+              key={clip.id}
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                addTransitionInto(clip.id);
+              }}
+              className="absolute top-1/2 z-20 flex size-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/70 bg-panel-elevated text-text-secondary opacity-0 shadow transition group-hover:opacity-100 hover:bg-accent hover:text-white"
+              style={{ left: cutPx }}
+              title="Add transition (⌘D)"
+              aria-label="Add transition"
+            >
+              <PlusIcon className="size-3" />
+            </button>
+          );
+        }
+        const selected = selectedClipId === clip.id;
+        return (
+          <button
+            key={clip.id}
+            type="button"
+            data-transition-band
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              useTimelineStore.getState().selectClip(clip.id);
+            }}
+            className={clsx(
+              'absolute top-1/2 z-20 flex h-6 -translate-y-1/2 items-center justify-center gap-1 overflow-hidden rounded border bg-black/55 text-[10px] text-white shadow backdrop-blur-sm transition hover:bg-black/70',
+              selected ? 'border-accent ring-1 ring-accent' : 'border-white/60',
+            )}
+            style={{
+              left: (t.cut - t.duration / 2) * pps,
+              width: Math.max(16, t.duration * pps),
+            }}
+            title={`${transitionSpec(t.kind).label} · ${t.duration.toFixed(1)}s — click to edit`}
+          >
+            <BlendIcon className="size-3 shrink-0" />
+            {t.duration * pps > 70 ? (
+              <span className="truncate">{transitionSpec(t.kind).label}</span>
+            ) : null}
+          </button>
+        );
+      })}
+    </>
   );
 }
 

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { clipRate } from '../lib/clipRate';
 import { clipCssFilter } from '../lib/effects';
 import { fadeEnvelope } from '../lib/fadeEnvelope';
+import { stillUrl } from '../lib/stills';
 import { useTimelineStore } from '../store/useTimelineStore';
 import type { VideoClip } from '../types/timeline';
 
@@ -100,6 +101,7 @@ function PreviewOverlayClip({ clipId }: { clipId: string }) {
   });
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
   const urlRef = useRef<string | null>(null);
   const selected = useTimelineStore((s) => s.selectedClipIds.includes(clipId));
   const dragRef = useRef<{
@@ -154,9 +156,10 @@ function PreviewOverlayClip({ clipId }: { clipId: string }) {
     dragRef.current = null;
   };
 
-  // Mount object URL when the source file changes.
+  // Mount object URL when the source file changes. Stills use the
+  // shared `stillUrl` cache via the <img> src instead.
   useEffect(() => {
-    if (!clip) return;
+    if (!clip || clip.still) return;
     const url = URL.createObjectURL(clip.file);
     urlRef.current = url;
     const video = videoRef.current;
@@ -173,9 +176,18 @@ function PreviewOverlayClip({ clipId }: { clipId: string }) {
   useEffect(() => {
     if (!clip) return;
     const sync = () => {
+      const state = useTimelineStore.getState();
+      const layerOpacity = clip.transform?.opacity ?? 1;
+      const opacity = String(
+        fadeEnvelope(clip, state.playheadPosition) * layerOpacity,
+      );
+      if (clip.still) {
+        // Nothing to seek or play — only the fade envelope moves.
+        if (imgRef.current) imgRef.current.style.opacity = opacity;
+        return;
+      }
       const video = videoRef.current;
       if (!video) return;
-      const state = useTimelineStore.getState();
       const rate = clipRate(clip);
       const local = state.playheadPosition - clip.startOffset;
       const target = clip.trimStart + Math.max(0, local) * rate;
@@ -193,10 +205,7 @@ function PreviewOverlayClip({ clipId }: { clipId: string }) {
       // Layer opacity multiplies the user-set PiP opacity with the
       // clip's fade envelope so a half-opaque layer dimmed by a
       // fade composites at the product, matching the export plan.
-      const layerOpacity = clip.transform?.opacity ?? 1;
-      video.style.opacity = String(
-        fadeEnvelope(clip, state.playheadPosition) * layerOpacity,
-      );
+      video.style.opacity = opacity;
     };
     sync();
     const unsubP = useTimelineStore.subscribe(
@@ -237,7 +246,15 @@ function PreviewOverlayClip({ clipId }: { clipId: string }) {
 
   const filter = clipCssFilter(clip);
   if (!transform) {
-    return (
+    return clip.still ? (
+      <img
+        ref={imgRef}
+        alt=""
+        src={stillUrl(clip.file)}
+        className="pointer-events-none absolute"
+        style={{ ...positionStyle, filter }}
+      />
+    ) : (
       <video
         ref={videoRef}
         muted
@@ -263,14 +280,25 @@ function PreviewOverlayClip({ clipId }: { clipId: string }) {
       style={{ ...positionStyle, ...rotateStyle }}
       title="Drag to move · corner handle to resize"
     >
-      <video
-        ref={videoRef}
-        muted
-        playsInline
-        preload="auto"
-        className="block h-auto w-full"
-        style={{ filter }}
-      />
+      {clip.still ? (
+        <img
+          ref={imgRef}
+          alt=""
+          draggable={false}
+          src={stillUrl(clip.file)}
+          className="block h-auto w-full"
+          style={{ filter }}
+        />
+      ) : (
+        <video
+          ref={videoRef}
+          muted
+          playsInline
+          preload="auto"
+          className="block h-auto w-full"
+          style={{ filter }}
+        />
+      )}
       {selected ? (
         <div
           onPointerDown={(e) => beginDrag(e, 'scale')}

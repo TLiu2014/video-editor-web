@@ -1,5 +1,6 @@
 import { computeTimelineDuration } from './clipRate';
 import { newId } from './ids';
+import { STILL_MAX_DURATION } from './stills';
 import type {
   AnyClip,
   AudioClip,
@@ -428,13 +429,20 @@ export function clipFromAsset(
     trimStart: 0,
     trimEnd: asset.duration,
     duration: asset.duration,
-    sourceDuration: asset.duration,
+    // A still has no real source length; the cap lets its right edge
+    // be dragged out well past the default length.
+    sourceDuration: asset.still ? STILL_MAX_DURATION : asset.duration,
     fadeIn: 0,
     fadeOut: 0,
     trackId,
   };
   if (asset.kind === 'video') {
-    const clip: VideoClip = { ...base, kind: 'video', hasAudio: asset.hasAudio };
+    const clip: VideoClip = {
+      ...base,
+      kind: 'video',
+      hasAudio: asset.hasAudio,
+      ...(asset.still ? { still: true } : {}),
+    };
     return clip;
   }
   const clip: AudioClip = { ...base, kind: 'audio', volume: 1 };

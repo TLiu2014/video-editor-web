@@ -348,7 +348,7 @@ export function Toolbar() {
           ref={fileInputRef}
           type="file"
           multiple
-          accept="video/*,audio/*"
+          accept="video/*,audio/*,image/*"
           hidden
           onChange={handleImport}
         />

@@ -26,28 +26,32 @@ const crossOriginHeaders = {
  * `dist/ffmpeg/{core,core-mt}/`. Either way `useFFmpeg` only ever
  * fetches `/ffmpeg/{core,core-mt}/ffmpeg-core.{js,wasm,worker.js}`
  * from the same origin — no CDN dependency, no toBlobURL gymnastics.
+ *
+ * These are the ESM builds: @ffmpeg/ffmpeg's worker is an ES module,
+ * which can't `importScripts()` the UMD core and falls back to
+ * `import()` — that only works with the ESM files.
  */
 function ffmpegCorePlugin(): Plugin {
   const mappings: { url: string; source: string }[] = [
     {
       url: '/ffmpeg/core/ffmpeg-core.js',
-      source: 'node_modules/@ffmpeg/core/dist/umd/ffmpeg-core.js',
+      source: 'node_modules/@ffmpeg/core/dist/esm/ffmpeg-core.js',
     },
     {
       url: '/ffmpeg/core/ffmpeg-core.wasm',
-      source: 'node_modules/@ffmpeg/core/dist/umd/ffmpeg-core.wasm',
+      source: 'node_modules/@ffmpeg/core/dist/esm/ffmpeg-core.wasm',
     },
     {
       url: '/ffmpeg/core-mt/ffmpeg-core.js',
-      source: 'node_modules/@ffmpeg/core-mt/dist/umd/ffmpeg-core.js',
+      source: 'node_modules/@ffmpeg/core-mt/dist/esm/ffmpeg-core.js',
     },
     {
       url: '/ffmpeg/core-mt/ffmpeg-core.wasm',
-      source: 'node_modules/@ffmpeg/core-mt/dist/umd/ffmpeg-core.wasm',
+      source: 'node_modules/@ffmpeg/core-mt/dist/esm/ffmpeg-core.wasm',
     },
     {
       url: '/ffmpeg/core-mt/ffmpeg-core.worker.js',
-      source: 'node_modules/@ffmpeg/core-mt/dist/umd/ffmpeg-core.worker.js',
+      source: 'node_modules/@ffmpeg/core-mt/dist/esm/ffmpeg-core.worker.js',
     },
   ];
 
@@ -87,6 +91,12 @@ function ffmpegCorePlugin(): Plugin {
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), ffmpegCorePlugin()],
+  // @ffmpeg/ffmpeg spawns its worker via `new URL('./worker.js',
+  // import.meta.url)`. Pre-bundling moves the module into
+  // node_modules/.vite/deps where that file doesn't exist, so dev
+  // served index.html for the worker and export could never load.
+  // (Documented requirement in the ffmpeg.wasm Vite guide.)
+  optimizeDeps: { exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util'] },
   server: { headers: crossOriginHeaders },
   preview: { headers: crossOriginHeaders },
 });

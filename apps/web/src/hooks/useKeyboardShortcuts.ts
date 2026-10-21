@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import {
   addTextAtPlayhead,
+  addTransitionAtPlayhead,
   cutSelection,
   deleteSelection,
   groupSelection,
@@ -173,6 +174,11 @@ export function useKeyboardShortcuts(): void {
           case 'KeyJ':
             e.preventDefault();
             joinSelection();
+            return;
+          case 'KeyD':
+            // Also overrides the browser's bookmark shortcut.
+            e.preventDefault();
+            addTransitionAtPlayhead();
             return;
           case 'KeyI':
             e.preventDefault();

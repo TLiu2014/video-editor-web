@@ -6,11 +6,14 @@ import { clipCssFilter } from '../lib/effects';
 import { fadeEnvelope } from '../lib/fadeEnvelope';
 import { triggerMediaPicker } from '../lib/filePickers';
 import { findActiveVideoClip } from '../lib/projectMetrics';
+import { stillUrl } from '../lib/stills';
+import { transitionAt } from '../lib/transitions';
 import { useTimelineStore } from '../store/useTimelineStore';
 import { useTimelineViewStore } from '../store/useTimelineViewStore';
 import { PreviewOverlayLayer } from './PreviewOverlayLayer';
 import type {
   TextOverlay,
+  TransitionKind,
   VideoClip,
   VideoProject,
 } from '../types/timeline';
@@ -52,6 +55,10 @@ export function Preview() {
   // black, then fade in."
   const mainVideoRef = useRef<HTMLVideoElement>(null);
   const auxVideoRef = useRef<HTMLVideoElement>(null);
+  // Still-image clips render through these instead of the videos;
+  // each sits directly above its video in the same composited space.
+  const mainImgRef = useRef<HTMLImageElement>(null);
+  const auxImgRef = useRef<HTMLImageElement>(null);
   const mainSourceRef = useRef<SourceRef | null>(null);
   const auxSourceRef = useRef<SourceRef | null>(null);
   const frameRef = useRef<HTMLDivElement>(null);
@@ -87,7 +94,9 @@ export function Preview() {
     const sync = () => {
       const main = mainVideoRef.current;
       const aux = auxVideoRef.current;
-      if (!main || !aux) return;
+      const mainImg = mainImgRef.current;
+      const auxImg = auxImgRef.current;
+      if (!main || !aux || !mainImg || !auxImg) return;
       const state = useTimelineStore.getState();
       const project = state.currentProject;
       if (!project) {
@@ -102,29 +111,84 @@ export function Preview() {
         releaseSource(aux, auxSourceRef);
         main.style.opacity = '0';
         aux.style.opacity = '0';
+        mainImg.style.opacity = '0';
+        auxImg.style.opacity = '0';
         return;
       }
 
-      updateActiveVideo(main, mainSourceRef, active, state);
-      main.style.filter = clipCssFilter(active);
-
-      const partner = findCrossfadePartner(
-        project,
-        active,
-        state.playheadPosition,
-      );
-      const mainOpacity = fadeEnvelope(active, state.playheadPosition);
-      main.style.opacity = String(mainOpacity);
-
-      if (partner) {
-        renderAuxFreeze(aux, auxSourceRef, partner);
-        aux.style.filter = clipCssFilter(partner.clip);
-        aux.style.opacity = String(1 - mainOpacity);
+      // `front` is whichever element shows the active clip.
+      let front: HTMLElement;
+      if (active.still) {
+        if (!main.paused) main.pause();
+        main.style.opacity = '0';
+        showStill(mainImg, active);
+        front = mainImg;
       } else {
-        // No crossfade right now — keep the aux source mounted but
+        mainImg.style.opacity = '0';
+        updateActiveVideo(main, mainSourceRef, active, state);
+        front = main;
+      }
+      front.style.filter = clipCssFilter(active);
+
+      for (const el of [main, aux, mainImg, auxImg]) {
+        el.style.clipPath = '';
+        el.style.transform = '';
+      }
+      const mainOpacity = fadeEnvelope(active, state.playheadPosition);
+      front.style.opacity = String(mainOpacity);
+
+      // A transition window around a V1 cut: show the other clip of
+      // the pair behind the active one (as a held frame) and composite
+      // the two the way the export's `xfade` does. Plain fades no
+      // longer cross-blend here — like the export, they go to black.
+      const t = transitionAt(project, state.playheadPosition);
+      const partner =
+        t && (t.outgoing.id === active.id || t.incoming.id === active.id)
+          ? t.outgoing.id === active.id
+            ? { clip: t.incoming, freezeTime: t.incoming.trimStart }
+            : {
+                clip: t.outgoing,
+                // Pull back a hair from the absolute end so codecs that
+                // can't seek to t=duration exactly still produce a frame.
+                freezeTime: Math.max(t.outgoing.trimStart, t.outgoing.trimEnd - 0.04),
+              }
+          : null;
+
+      if (t && partner) {
+        let back: HTMLElement;
+        if (partner.clip.still) {
+          aux.style.opacity = '0';
+          showStill(auxImg, partner.clip);
+          back = auxImg;
+        } else {
+          auxImg.style.opacity = '0';
+          renderAuxFreeze(aux, auxSourceRef, partner);
+          back = aux;
+        }
+        back.style.filter = clipCssFilter(partner.clip);
+        const activeIsOutgoing = t.outgoing.id === active.id;
+        applyTransition(t.kind, t.progress, {
+          outgoing: activeIsOutgoing ? front : back,
+          incoming: activeIsOutgoing ? back : front,
+          frontIsOutgoing: activeIsOutgoing,
+          // The held frame lies just outside its clip's span, where
+          // the envelope is 0; read it at the clip's nearest edge (as
+          // the export's run-out / pre-roll does).
+          outgoingOpacity: fadeEnvelope(
+            t.outgoing,
+            Math.min(state.playheadPosition, t.cut - 1e-3),
+          ),
+          incomingOpacity: fadeEnvelope(
+            t.incoming,
+            Math.max(state.playheadPosition, t.cut),
+          ),
+        });
+      } else {
+        // No transition right now — keep the aux source mounted but
         // hidden. Releasing on every clip change churns object URLs
-        // and forces a re-decode the next time we cross a fade.
+        // and forces a re-decode the next time we cross a cut.
         aux.style.opacity = '0';
+        auxImg.style.opacity = '0';
       }
     };
 
@@ -166,11 +230,23 @@ export function Preview() {
           muted
           style={{ opacity: 0 }}
         />
+        <img
+          ref={auxImgRef}
+          alt=""
+          className="pointer-events-none absolute inset-0 h-full w-full object-contain"
+          style={{ opacity: 0 }}
+        />
         <video
           ref={mainVideoRef}
           className="relative h-full w-full bg-transparent"
           playsInline
           preload="auto"
+        />
+        <img
+          ref={mainImgRef}
+          alt=""
+          className="pointer-events-none absolute inset-0 h-full w-full object-contain"
+          style={{ opacity: 0 }}
         />
         <PreviewOverlayLayer />
         <PreviewEmptyOverlay />
@@ -213,6 +289,12 @@ function updateActiveVideo(
   }
 }
 
+/** Point an `<img>` at a still clip's picture (no-op if already there). */
+function showStill(img: HTMLImageElement, clip: VideoClip): void {
+  const url = stillUrl(clip.file);
+  if (img.getAttribute('src') !== url) img.src = url;
+}
+
 function renderAuxFreeze(
   video: HTMLVideoElement,
   sourceRef: React.MutableRefObject<SourceRef | null>,
@@ -243,79 +325,61 @@ function releaseSource(
 }
 
 /**
- * Pick the neighbor clip (and its freeze frame) to render in the
- * aux layer for the current playhead.
- *
- *   - In `active`'s fadeIn window, return the previous clip's
- *     trim-end frame, so it appears to dissolve outward.
- *   - In `active`'s fadeOut window, return the next clip's
- *     trim-start frame, so it appears to dissolve in.
- *   - Otherwise return null.
- *
- * Only `kind: 'video'` clips are considered — audio neighbors don't
- * contribute a picture.
+ * Style the two layers of a transition at `progress` (0 → 1) to match
+ * ffmpeg's `xfade`. Only one layer — the active clip — is in front;
+ * the other is its held frame behind it, so "revealing" the back layer
+ * means clipping or fading the front one.
  */
-function findCrossfadePartner(
-  project: VideoProject,
-  active: VideoClip,
-  playhead: number,
-): CrossfadePartner | null {
-  const local = playhead - active.startOffset;
-  if (active.fadeIn > 0 && local < active.fadeIn) {
-    const prev = findPreviousVideoClip(project, active);
-    if (prev) {
-      // Pull back a hair from the absolute end so codecs that
-      // can't seek to t=duration exactly still produce a real frame.
-      const freezeTime = Math.max(prev.trimStart, prev.trimEnd - 0.04);
-      return { clip: prev, freezeTime };
-    }
-  }
-  if (active.fadeOut > 0 && local > active.duration - active.fadeOut) {
-    const next = findNextVideoClip(project, active);
-    if (next) {
-      return { clip: next, freezeTime: next.trimStart };
-    }
-  }
-  return null;
-}
-
-function findPreviousVideoClip(
-  project: VideoProject,
-  current: VideoClip,
-): VideoClip | null {
-  let best: VideoClip | null = null;
-  for (const track of project.tracks) {
-    if (track.type !== 'video') continue;
-    for (const c of track.clips) {
-      if (c.kind !== 'video' || c.id === current.id) continue;
-      if (c.startOffset + c.duration <= current.startOffset + 0.05) {
-        if (!best || c.startOffset > best.startOffset) {
-          best = c;
-        }
+function applyTransition(
+  kind: TransitionKind,
+  progress: number,
+  layers: {
+    outgoing: HTMLElement;
+    incoming: HTMLElement;
+    frontIsOutgoing: boolean;
+    outgoingOpacity: number;
+    incomingOpacity: number;
+  },
+): void {
+  const { outgoing, incoming, frontIsOutgoing } = layers;
+  const p = Math.max(0, Math.min(1, progress));
+  const pct = (v: number) => `${(v * 100).toFixed(2)}%`;
+  outgoing.style.opacity = String(layers.outgoingOpacity);
+  incoming.style.opacity = String(layers.incomingOpacity);
+  switch (kind) {
+    case 'dissolve': {
+      // front·α over an opaque back reproduces a linear blend.
+      if (frontIsOutgoing) {
+        outgoing.style.opacity = String(layers.outgoingOpacity * (1 - p));
+      } else {
+        incoming.style.opacity = String(layers.incomingOpacity * p);
       }
+      return;
     }
-  }
-  return best;
-}
-
-function findNextVideoClip(
-  project: VideoProject,
-  current: VideoClip,
-): VideoClip | null {
-  let best: VideoClip | null = null;
-  const currentEnd = current.startOffset + current.duration;
-  for (const track of project.tracks) {
-    if (track.type !== 'video') continue;
-    for (const c of track.clips) {
-      if (c.kind !== 'video' || c.id === current.id) continue;
-      if (c.startOffset >= currentEnd - 0.05) {
-        if (!best || c.startOffset < best.startOffset) {
-          best = c;
-        }
-      }
+    case 'fadeblack': {
+      outgoing.style.opacity = String(layers.outgoingOpacity * Math.max(0, 1 - 2 * p));
+      incoming.style.opacity = String(layers.incomingOpacity * Math.max(0, 2 * p - 1));
+      return;
     }
+    case 'wipeleft':
+      // The incoming clip enters from the right edge.
+      if (frontIsOutgoing) outgoing.style.clipPath = `inset(0 ${pct(p)} 0 0)`;
+      else incoming.style.clipPath = `inset(0 0 0 ${pct(1 - p)})`;
+      return;
+    case 'wiperight':
+      // The incoming clip enters from the left edge.
+      if (frontIsOutgoing) outgoing.style.clipPath = `inset(0 0 0 ${pct(p)})`;
+      else incoming.style.clipPath = `inset(0 ${pct(1 - p)} 0 0)`;
+      return;
+    case 'slideleft':
+      outgoing.style.transform = `translateX(-${pct(p)})`;
+      incoming.style.transform = `translateX(${pct(1 - p)})`;
+      return;
+    case 'slideright':
+      outgoing.style.transform = `translateX(${pct(p)})`;
+      incoming.style.transform = `translateX(-${pct(1 - p)})`;
+      return;
   }
-  return best;
 }
 
 /**

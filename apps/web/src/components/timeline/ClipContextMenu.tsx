@@ -1,6 +1,7 @@
 import {
   ArrowLeftToLineIcon,
   ArrowRightToLineIcon,
+  BlendIcon,
   BetweenHorizontalStartIcon,
   ClipboardCopyIcon,
   CombineIcon,
@@ -12,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
+  addTransitionInto,
   closeGapsForSelection,
   deleteSelection,
   joinBlocker,
@@ -21,6 +23,7 @@ import {
   trimSelectionToPlayhead,
 } from '../../lib/editActions';
 import { isMac } from '../../lib/platform';
+import { baseTrackClips, previousTouching } from '../../lib/transitions';
 import { useTimelineStore } from '../../store/useTimelineStore';
 import { useTimelineViewStore } from '../../store/useTimelineViewStore';
 
@@ -100,6 +103,15 @@ export function ClipContextMenu() {
     selectedClips.map((c) => c.groupId).filter((g): g is string => !!g),
   );
   const noPlayhead = 'Move the playhead over the clip first.';
+  const baseClips = project ? baseTrackClips(project) : [];
+  const single = selectedClips.length === 1 ? selectedClips[0] : undefined;
+  const singleOnBase = single
+    ? baseClips.find((c) => c.id === single.id)
+    : undefined;
+  const transitionTarget =
+    singleOnBase && previousTouching(baseClips, singleOnBase)
+      ? singleOnBase.id
+      : null;
 
   const sections: Item[][] = [
     [
@@ -126,6 +138,16 @@ export function ClipContextMenu() {
         disabled: !underPlayhead,
         hint: underPlayhead ? undefined : noPlayhead,
         action: () => trimSelectionToPlayhead('end', false),
+      },
+      {
+        label: 'Add Transition In',
+        icon: <BlendIcon />,
+        shortcut: `${MOD}D`,
+        disabled: transitionTarget === null,
+        hint: transitionTarget ? undefined : 'Only for a V1 clip touching the previous clip.',
+        action: () => {
+          if (transitionTarget) addTransitionInto(transitionTarget);
+        },
       },
       {
         label: 'Join Clips',

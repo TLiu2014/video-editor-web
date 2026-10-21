@@ -3,6 +3,11 @@ import { useTimelineViewStore } from '../store/useTimelineViewStore';
 import type { TrackId } from '../types/timeline';
 import { newId } from './ids';
 import { checkJoin } from './timelineOps';
+import {
+  baseTrackClips,
+  DEFAULT_TRANSITION_DURATION,
+  previousTouching,
+} from './transitions';
 
 /**
  * Selection-driven edit commands shared by the keyboard shortcuts,
@@ -173,4 +178,45 @@ export function addTextAtPlayhead(): void {
       size: 64,
     },
   });
+}
+
+/**
+ * Add a default (Dissolve, 1s) transition at the V1 cut nearest the
+ * playhead, or into the selected clip if it touches a previous clip
+ * (Premiere's ⌘D "Apply Default Video Transition"). Selects the
+ * incoming clip so Properties shows the transition.
+ */
+export function addTransitionAtPlayhead(): void {
+  const s = useTimelineStore.getState();
+  const project = s.currentProject;
+  if (!project) return;
+  const clips = baseTrackClips(project);
+  const touching = clips.filter((c) => previousTouching(clips, c));
+  if (touching.length === 0) return;
+  const selected = touching.find((c) => c.id === s.selectedClipId);
+  const target =
+    selected ??
+    touching.reduce((best, c) =>
+      Math.abs(c.startOffset - s.playheadPosition) <
+      Math.abs(best.startOffset - s.playheadPosition)
+        ? c
+        : best,
+    );
+  addTransitionInto(target.id);
+}
+
+/** Give `clipId` a default transition (keeping an existing one). */
+export function addTransitionInto(clipId: string): void {
+  const s = useTimelineStore.getState();
+  const clip = s.currentProject
+    ? baseTrackClips(s.currentProject).find((c) => c.id === clipId)
+    : undefined;
+  if (!clip) return;
+  if (!clip.transitionIn) {
+    s.setClipTransitionIn(clipId, {
+      kind: 'dissolve',
+      duration: DEFAULT_TRANSITION_DURATION,
+    });
+  }
+  s.selectClip(clipId);
 }

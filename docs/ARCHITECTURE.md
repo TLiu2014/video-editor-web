@@ -24,7 +24,12 @@ video-editor-web/                 pnpm + Turborepo monorepo
 
 Commands (from the repo root): `pnpm dev`, `pnpm build`, `pnpm typecheck`. Tests: `pnpm --filter @video-editor-web/web test` (Vitest).
 
-The dev and preview servers send COOP/COEP headers so the page is cross-origin isolated. That enables `SharedArrayBuffer` and the multi-threaded FFmpeg core. Both FFmpeg cores are self-hosted from `node_modules` by a small Vite plugin (`apps/web/vite.config.ts`), with no CDN involved.
+The dev and preview servers send COOP/COEP headers so the page is cross-origin isolated. Both FFmpeg cores are self-hosted from `node_modules` by a small Vite plugin (`apps/web/vite.config.ts`), with no CDN involved.
+
+Three settings are required to make export work at all:
+- **ESM core builds.** `@ffmpeg/ffmpeg`'s worker is an ES module and can only `import()` the ESM core, not the UMD one.
+- **Exclude from pre-bundling.** `@ffmpeg/ffmpeg` and `@ffmpeg/util` are excluded from Vite's `optimizeDeps`; otherwise the worker file isn't found and dev serves `index.html` in its place.
+- **Single-threaded core by default.** `@ffmpeg/core-mt` 0.12's `load()` never settles under the module worker. The multi-threaded core stays available through `useFFmpeg({ multiThread: true })`.
 
 ---
 
@@ -116,7 +121,9 @@ VideoProject
 - **`Preview`**
   - It keeps one `<video>` element seeked to the active V1 clip and draws picture-in-picture layers from V2 and above.
   - It applies clip effects as CSS `filter`, fades as opacity (`fadeEnvelope`), and speed as `playbackRate`.
-  - It crossfades between neighboring clips that have fades.
+  - Plain fades go to and from black, as in the export.
+  - Inside a transition window (`lib/transitions.ts`), the other clip of the pair is shown as a held frame behind the active one, and the two are composited the way `xfade` does: opacity for dissolve and fade-through-black, `clip-path` for wipes, `translateX` for slides.
+  - Still clips render through an `<img>` next to each `<video>`; object URLs come from a shared cache (`lib/stills.ts`).
   - `PreviewOverlayLayer` renders text overlays and handles dragging them.
 - **`useAudioEngine`** plays audio-track clips through Web Audio (`MediaElementSource → Gain`), with volume, fades, mute and solo. `AudioMeter` reads an analyser node from the same graph.
 - Known gap: when a video clip's own audio is muted, the preview may still play it. The export always respects the mute.
@@ -125,10 +132,12 @@ VideoProject
 
 `buildExportPlan(project)` compiles the project into a single ffmpeg command:
 
-1. Each distinct source `File` becomes one `-i` input.
+1. Each distinct source `File` becomes one `-i` input. A still image becomes a looped constant-rate stream (`-loop 1 -framerate fps -t …`). Before encoding, ffmpeg reads each video input's header and re-plans with `hasAudio` off for files that turn out to have no audio stream, since the browser probe at import can't always tell.
 2. Each clip is processed in this order: `trim`/`atrim` → `setpts` (speed, with `atempo` chains for audio) → scale/pad (letterbox) → fps → `fade` → effects (`eq`, `gblur`).
-3. Gaps become `color=black` / `anullsrc` segments, and each track is concatenated.
-4. V2 and higher tracks are overlaid with their transform (position, scale, rotation, opacity).
+3. Gaps become `color=black` / `anullsrc` segments, and each track is concatenated. On V1, touching clips with a transition form a *run*:
+   - Each clip is extended by d/2 into its neighbor, using trimmed-off media or holding the edge frame with `tpad`.
+   - The clips are chained with `xfade`, so the run's length equals the sum of the clips and nothing shifts.
+4. V2 and higher tracks are overlaid with their transform (position, scale, rotation, opacity). Layers keep an alpha channel (`yuva420p`), so transparent PNGs composite correctly and fades change the layer's alpha instead of fading to black.
 5. Text overlays are rendered to PNG in the browser (`textOverlayPng`) and overlaid with `enable='between(t,…)'`.
 6. All audible audio is mixed with `amix`, honoring mute, solo and `hasAudio`.
 7. The output is H.264 (yuv420p) plus AAC at 192 kbps in an MP4 with `+faststart`.
@@ -170,6 +179,7 @@ The export dialog estimates memory use (`projectMetrics.exportMemoryRisk`) befor
 | **Media library** | Import (picker or drop on the panel) puts files in the library, not the timeline. Add to the timeline with **+** (at the playhead) or by dragging onto a track. Click an item to select its clips; double-click to rename; remove one item (and its clips) or every unused item. Shows how many clips use each item. | `MediaLibrary`, `timelineOps` (`insertAssetClip`, `removeMediaAsset`, `removeUnusedMedia`, `mediaUsage`) |
 | Drop files onto a track | Imports them into the library and places them end to end at the drop point | `Track` |
 | Clips list | Every clip on the timeline by track, list or grid view. Click to select and scroll to it. | `ClipsSidebar` |
+| Still images | PNG, JPEG and WebP pass through; other browser-decodable formats are rasterized to PNG on import. Stills live on video tracks, start 5 s long and can be trimmed out to 1 h. | `lib/stills.ts`, `importMedia` |
 | Archive save/open | Portable `.zip` containing the media | `projectArchive` |
 
 ### Timeline and clips
@@ -191,6 +201,7 @@ The export dialog estimates memory use (`projectMetrics.exportMemoryRisk`) befor
 | Group / ungroup | Grouped clips move together | store |
 | Selection | Click, Shift+click, ⌘A, select a track, select before or after the playhead | store, palette |
 | Snapping | To clip edges, overlay edges, the playhead and ruler ticks | `snapping` |
+| **Transitions** | On V1, between touching clips: dissolve, fade through black, wipe left/right, slide left/right; 0.1–3 s, centered on the cut. Stored on the incoming clip (`transitionIn`), inactive while the clips don't touch, and kept on the left half when a clip is split. | `lib/transitions.ts`, `TransitionMarkers`, `TransitionControl` |
 | Context menu | Right-click a clip: split, trim to playhead, join, copy, group, close gaps, show in Media, delete, ripple delete | `ClipContextMenu` |
 | Zoom | = / − / 0 | `useTimelineViewStore` |
 | Navigation | Home / End go to the start / end; ↑ / ↓ jump to the previous / next edit point | `editActions.jumpToEditPoint` |
@@ -244,7 +255,10 @@ Which established editor each behavior follows. "Own" means a choice made for th
 | Snapping | Universal (Camtasia: *magnetic* snapping) | |
 | Track mute (M) and solo (S) | Premiere / DAW mixers | |
 | Speed 0.25–4× | Camtasia *Clip Speed*; Premiere *Speed/Duration* | |
-| Fade in/out per clip | Camtasia audio/visual fades; Premiere default transitions | |
+| Fade in/out per clip | Camtasia audio/visual fades | |
+| Transitions centered on the cut, using handle media | Camtasia and Premiere transitions ("center at cut" alignment in Premiere) | Applied from a "+" on the cut, ⌘D or Properties, rather than Camtasia's drag from a Transitions tab. V1 only. |
+| ⌘D = add default transition | Premiere *Apply Default Video Transition* | Camtasia has no default binding. |
+| Still images on video tracks | Camtasia and Premiere (image duration default) | Camtasia and Premiere default stills to about 5 s as well. |
 | PiP transform on V2+ | Camtasia canvas transform; Premiere *Motion* | Drag to move and corner-resize in the preview (rotation and opacity are in Properties only); no keyframes yet. |
 | Brightness/contrast/saturation/blur | Camtasia *Visual Effects*; Premiere *Lumetri* (much simpler here) | |
 | Auto Captions | Camtasia *Dynamic Captions*; Premiere *Speech to Text* | Bring your own provider key. |
@@ -256,8 +270,10 @@ Which established editor each behavior follows. "Own" means a choice made for th
 
 ## 5. Known gaps
 
-- No transitions beyond fades, and no keyframes or animation.
-- No still images, shapes, or annotations (Camtasia *Annotations*), and no cursor or zoom-and-pan effects.
+- Transitions only on V1, and only the six types above; the preview shows the other clip as a still frame rather than playing it.
+- No keyframes or animation.
+- No shapes or annotations (Camtasia *Annotations*), and no cursor or zoom-and-pan effects. Animated GIFs import as their first frame.
+- Export is single-threaded (see section 1).
 - No JKL shuttle, no track lock, no track height control, no slip or slide tools.
 - Text overlays: no font family, weight, background or alignment; they aren't on a track.
 - Mute of a video clip's own audio isn't reflected in the preview.
@@ -272,4 +288,4 @@ Which established editor each behavior follows. "Own" means a choice made for th
 
 - Browser smoke test: `apps/web/e2e/smoke.mjs` (`pnpm e2e` against a running dev server). It drives headless Chrome through import, resizing, reorder, cross-track drag, the range shortcuts, undo, split/join/delete, PiP drag and resize, `.srt` import and the context menu.
 - Vitest (`apps/web`, `pnpm test`) covers the pure editing rules (`lib/timelineOps.test.ts`), the load path and legacy migration (`serialization/project.test.ts`), and store actions (`store/useTimelineStore.test.ts`).
-- Export output is still verified by hand.
+- `lib/filterGraph.ffmpeg.test.ts` runs real export plans through native ffmpeg (`RUN_FFMPEG=1 pnpm test`). It checks still images, transparent PNG overlays, V2 alpha fades, dissolve length and blending, held edge frames, wipe direction, and fades going through black. The smoke test also exports through ffmpeg.wasm in the browser and checks the MP4 with ffprobe.

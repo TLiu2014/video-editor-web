@@ -65,6 +65,14 @@ The left sidebar has two tabs:
 
 Splitting a clip doesn't duplicate its media. All pieces share the same library item.
 
+### Images
+
+Import PNG, JPEG or WebP images (logos, title cards, screenshots) the same way as video; they show as **Image** in Media.
+- Other formats the browser can open, such as SVG, GIF and BMP, are converted to PNG on import. A GIF becomes its first frame.
+- An image goes on a video track and starts 5 seconds long. Drag its edges to make it any length, up to an hour.
+- Transparent PNGs keep their transparency on V2 and above, so a logo sits cleanly over the video.
+- Images have no audio and no speed setting. Fades, effects, picture-in-picture and transitions all work.
+
 **Track controls:**
 
 - **M** — mute the track
@@ -191,7 +199,7 @@ Slowing a clip down can't make it overlap the next clip. The slowest speed you c
 
 ### Fade in / fade out
 
-Set how many seconds the clip takes to fade in from black (or silence) and out again. Video fades show in the preview, audio fades are heard, and both are in the export. Fade-in plus fade-out can't be longer than the clip. When two neighboring clips on V1 both have fades, the preview crossfades between them.
+Set how many seconds the clip takes to fade in from black (or silence) and out again. Video fades show in the preview, audio fades are heard, and both are in the export. Fade-in plus fade-out can't be longer than the clip. On V1 a fade goes to and from black; on V2 and above the layer fades out to show what's underneath. To blend one clip into the next, use a **transition** (section 7) instead.
 
 ### Clip color
 
@@ -210,7 +218,38 @@ Effects preview live and are burned into the export. **Reset effects** clears al
 
 ---
 
-## 7. Picture-in-picture (V2 and above)
+## 7. Transitions
+
+A transition blends one V1 clip into the next at a cut. The two clips must touch, with no gap between them.
+
+**Add a transition** in any of these ways:
+
+- Hover the V1 track and click the **+** that appears on a cut. This adds a 1-second dissolve.
+- Press **⌘D** to add one at the cut nearest the playhead, or into the selected clip. This is Premiere's "Apply Default Video Transition".
+- Right-click the incoming clip (the one on the right of the cut) and choose **Add Transition In**.
+- Select the incoming clip and click **Add transition** under **Transition in** in Properties.
+
+**Edit it:** click the transition band on the timeline, or select the incoming clip. In Properties, pick the type and set the duration. **Remove** deletes it.
+
+| Type | Effect |
+|---|---|
+| Dissolve | Cross-blend between the two clips |
+| Fade through black | The first clip fades to black, then the second fades in |
+| Wipe left / Wipe right | The second clip is revealed from the right / left edge |
+| Slide left / Slide right | The second clip pushes the first out of frame |
+
+**How timing works:** a transition is centered on the cut. A 1-second transition starts 0.5 s before the cut and ends 0.5 s after it, and it **doesn't change the length of your video**.
+- During it, the first clip keeps playing past its out-point and the second clip starts early, using the extra footage you trimmed off.
+- If there's no extra footage (for example, a clip used at full length), the edge frame is held still for that part.
+- Duration runs from 0.1 s up to 3 s, and can't be longer than the shorter of the two clips.
+
+**Preview vs export:** the preview shows the other clip as a still frame during the transition. The export plays both clips' real footage through it.
+
+Transitions are for V1 only. If you move a clip away from its neighbor, its transition switches off. It comes back if the clips touch again. Splitting a clip keeps the transition on the left piece.
+
+---
+
+## 8. Picture-in-picture (V2 and above)
 
 Higher video tracks draw on top of lower ones, so a clip on **V2** covers **V1** wherever both play.
 
@@ -228,7 +267,7 @@ Without PiP enabled, a V2 clip fills the frame and fully covers V1. Rotation and
 
 ---
 
-## 8. Text overlay
+## 9. Text overlay
 
 Add a simple text layer over your video.
 
@@ -250,7 +289,7 @@ Text overlays appear in the preview and are burned into the exported video.
 
 ---
 
-## 9. Captions
+## 10. Captions
 
 **Edit → Auto Captions…** creates captions from the timeline's audio, or imports a subtitle file.
 
@@ -268,7 +307,7 @@ Either way, each caption becomes a text overlay along the bottom of the frame. I
 
 ---
 
-## 10. Export to MP4
+## 11. Export to MP4
 
 When your edit is ready:
 
@@ -291,11 +330,11 @@ When your edit is ready:
 
 - Long projects or large source files need more browser memory. The export dialog warns if the project may be heavy.
 - Keep the export tab open until download completes.
-- For best performance on large exports, use a browser context with multi-threaded encoding enabled (cross-origin isolated page).
+- Export runs single-threaded in the browser, so it can take roughly as long as the video plays, or longer at high resolutions.
 
 ---
 
-## 11. Projects and archives
+## 12. Projects and archives
 
 - **Autosave:** every edit is saved in this browser automatically. The status bar shows when it last saved. Undo history (50 steps) lasts only while the project is open.
 - **Switch projects:** click the project name at the top left to rename it, switch to another project or create a new one. Use **File → Open Project…** to see all saved projects.
@@ -353,6 +392,8 @@ Additional commands (undo, ripple delete, etc.) are available from the command p
 | Media library (import, add to timeline, rename, remove unused) | Yes |
 | Mute original audio, add secondary audio, volume control | Yes (mute applies fully on export) |
 | Speed, fades, clip color, color effects | Yes |
+| Transitions (dissolve, fade through black, wipes, slides) | Yes, on V1 |
+| Still images (PNG, JPEG, WebP; others converted) | Yes |
 | Picture-in-picture (drag and resize in the preview) | Yes (V2+ audio is muted) |
 | Text overlay with default font | Yes |
 | Auto captions (speech-to-text) and .srt import | Yes |

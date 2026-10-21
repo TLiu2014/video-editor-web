@@ -46,6 +46,31 @@ export async function loadThumbnails(file: File): Promise<VideoThumbnailSet> {
 }
 
 async function extract(file: File): Promise<VideoThumbnailSet> {
+  if (file.type.startsWith('image/')) {
+    // A still is the same picture all the way along: one bitmap, which
+    // the strip repeats for every tile. Fit it (letterboxed) so logos
+    // and portrait screenshots keep their shape.
+    const source = await createImageBitmap(file);
+    const canvas = new OffscreenCanvas(THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT);
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const k = Math.min(
+        THUMBNAIL_WIDTH / source.width,
+        THUMBNAIL_HEIGHT / source.height,
+      );
+      const w = source.width * k;
+      const h = source.height * k;
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT);
+      ctx.drawImage(source, (THUMBNAIL_WIDTH - w) / 2, (THUMBNAIL_HEIGHT - h) / 2, w, h);
+    }
+    source.close();
+    return {
+      bitmaps: [canvas.transferToImageBitmap()],
+      width: THUMBNAIL_WIDTH,
+      height: THUMBNAIL_HEIGHT,
+    };
+  }
   const url = URL.createObjectURL(file);
   const video = document.createElement('video');
   video.preload = 'auto';

@@ -212,7 +212,7 @@ function MediaRow({ asset, uses }: { asset: MediaAsset; uses: number }) {
         'group flex cursor-grab items-center gap-2 px-3 py-1.5 transition hover:bg-chrome active:cursor-grabbing',
         highlighted && 'bg-accent/20',
       )}
-      title={`${asset.name} · ${formatTime(asset.duration, false)}`}
+      title={`${asset.name} · ${asset.still ? 'image' : formatTime(asset.duration, false)}`}
     >
       <div className="relative h-9 w-16 shrink-0 overflow-hidden rounded bg-black">
         {asset.kind === 'video' ? (
@@ -251,7 +251,7 @@ function MediaRow({ asset, uses }: { asset: MediaAsset; uses: number }) {
           </div>
         )}
         <div className="flex items-center gap-1.5 font-mono text-[10px] tabular-nums text-text-muted">
-          <span>{formatTime(asset.duration, false)}</span>
+          <span>{asset.still ? 'Image' : formatTime(asset.duration, false)}</span>
           <span>·</span>
           <span className={uses === 0 ? 'italic' : undefined}>
             {uses === 0 ? 'unused' : `used ×${uses}`}

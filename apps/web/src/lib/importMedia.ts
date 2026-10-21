@@ -1,4 +1,9 @@
 import { newId } from './ids';
+import {
+  isImageFile,
+  normalizeImageFile,
+  STILL_DEFAULT_DURATION,
+} from './stills';
 import { useTimelineStore } from '../store/useTimelineStore';
 import type { MediaAsset } from '../types/timeline';
 
@@ -103,9 +108,24 @@ export function isAudioFile(file: File): boolean {
 
 /**
  * Probe a dropped / picked file and turn it into a media library
- * asset. Returns null for files that are neither video nor audio.
+ * asset. Returns null for files that are not video, audio or an image.
  */
 export async function importMediaAsset(file: File): Promise<MediaAsset | null> {
+  if (isImageFile(file)) {
+    const still = await normalizeImageFile(file);
+    return {
+      id: newId(),
+      kind: 'video',
+      // Keep the user's original name even when the bytes were
+      // re-encoded to PNG.
+      name: file.name,
+      file: still,
+      duration: STILL_DEFAULT_DURATION,
+      hasAudio: false,
+      still: true,
+      importedAt: Date.now(),
+    };
+  }
   const kind = isVideoFile(file) ? 'video' : isAudioFile(file) ? 'audio' : null;
   if (!kind) return null;
   const { duration, hasAudio } = await probeMedia(file);

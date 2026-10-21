@@ -1,6 +1,7 @@
 import {
   ArrowLeftToLineIcon,
   ArrowRightToLineIcon,
+  BlendIcon,
   BetweenHorizontalStartIcon,
   BrushCleaningIcon,
   CaptionsIcon,
@@ -37,6 +38,7 @@ import {
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import {
+  addTransitionAtPlayhead,
   closeGapsForSelection,
   deleteSelection,
   joinBlocker,
@@ -260,6 +262,16 @@ export function useCommands(triggers: {
       hint: joinReason ?? undefined,
       disabled: joinReason !== null,
       action: joinSelection,
+    },
+    {
+      id: 'add-transition',
+      label: 'Add Transition',
+      keywords: ['dissolve', 'crossfade', 'wipe', 'slide', 'cut'],
+      icon: <BlendIcon />,
+      shortcut: '⌘D',
+      hint: 'At the V1 cut nearest the playhead',
+      disabled: !hasClips,
+      action: addTransitionAtPlayhead,
     },
     {
       id: 'close-gaps',

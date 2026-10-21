@@ -116,3 +116,36 @@ describe('multi-selection delete', () => {
     expect(useTimelineStore.getState().selectedClipIds).toEqual([c]);
   });
 });
+
+describe('transitions in the store', () => {
+  it('clamps duration to what fits and keeps it on the left half of a split', () => {
+    const s = useTimelineStore.getState();
+    const a = s.insertMediaClip('m1', { startOffset: 0 }); // [0,10)
+    const b = s.insertMediaClip('m1', { startOffset: 10 }); // [10,20)
+    if (!a || !b) throw new Error('insert failed');
+    s.setClipTransitionIn(b, { kind: 'wipeleft', duration: 99 });
+    expect((clipsById()[b] as VideoClip).transitionIn).toEqual({ kind: 'wipeleft', duration: 3 });
+    // Split b in its middle: only the left half (still id b) keeps it.
+    s.updatePlayhead(15);
+    useTimelineStore.getState().splitClipsAtPlayhead();
+    const pieces = v1().clips.filter((c) => c.startOffset >= 10) as VideoClip[];
+    expect(pieces).toHaveLength(2);
+    expect(pieces.find((c) => c.id === b)?.transitionIn?.kind).toBe('wipeleft');
+    expect(pieces.find((c) => c.id !== b)?.transitionIn).toBeUndefined();
+    useTimelineStore.getState().setClipTransitionIn(b, null);
+    expect((clipsById()[b] as VideoClip).transitionIn).toBeUndefined();
+  });
+});
+
+describe('still images', () => {
+  it('places a still with the default length and a long trim cap', () => {
+    const s = useTimelineStore.getState();
+    const png = new File(['p'], 'logo.png', { type: 'image/png' });
+    s.addMediaAssets([{ id: 'img', kind: 'video', name: 'logo.png', file: png, duration: 5, hasAudio: false, still: true, importedAt: 0 }]);
+    const id = s.insertMediaClip('img', { startOffset: 0 });
+    const clip = clipsById()[id ?? ''] as VideoClip;
+    expect(clip).toMatchObject({ still: true, duration: 5, hasAudio: false });
+    useTimelineStore.getState().trimClipRight(clip.id, 60);
+    expect((clipsById()[clip.id] as VideoClip).duration).toBe(60);
+  });
+});

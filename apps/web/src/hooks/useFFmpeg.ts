@@ -110,14 +110,93 @@ function isCrossOriginIsolated(): boolean {
   );
 }
 
+/**
+ * Run ffmpeg and keep its log. On a non-zero exit the full log goes
+ * to the console and the error message carries the last few lines,
+ * which is usually where ffmpeg says what went wrong.
+ */
+async function execOrThrow(
+  ffmpeg: FFmpeg,
+  args: string[],
+  what: string,
+): Promise<void> {
+  const log: string[] = [];
+  const onLog = ({ message }: { message: string }) => {
+    log.push(message);
+  };
+  ffmpeg.on('log', onLog);
+  try {
+    const exitCode = await ffmpeg.exec(args);
+    if (exitCode !== 0) {
+      console.error(`[ffmpeg] ${what} failed (code ${exitCode})\n${log.join('\n')}`);
+      const tail = log
+        .filter((l) => l.trim() && !/^\s*(frame=|size=|Stream mapping|  Stream #)/.test(l))
+        .slice(-4)
+        .join(' · ');
+      throw new Error(
+        `${what} failed (ffmpeg code ${exitCode})${tail ? `: ${tail}` : ''}. Full log in the browser console.`,
+      );
+    }
+  } finally {
+    ffmpeg.off('log', onLog);
+  }
+}
+
+/**
+ * Which written video inputs really have no audio stream. The browser
+ * probe at import can't always tell and then assumes audio (see
+ * importMedia) — but referencing `[i:a]` on a silent file aborts the
+ * whole export, so ask ffmpeg itself: `-i` with no output just prints
+ * the stream list (and exits non-zero, which is expected here).
+ */
+async function filesWithoutAudio(
+  ffmpeg: FFmpeg,
+  inputs: { name: string; file: File }[],
+): Promise<Set<File>> {
+  const silent = new Set<File>();
+  for (const input of inputs) {
+    if (!input.file.type.startsWith('video/')) continue;
+    const log: string[] = [];
+    const onLog = ({ message }: { message: string }) => {
+      log.push(message);
+    };
+    ffmpeg.on('log', onLog);
+    try {
+      await ffmpeg.exec(['-hide_banner', '-i', input.name]);
+    } finally {
+      ffmpeg.off('log', onLog);
+    }
+    if (!log.some((l) => /Stream #\d+:\d+.*: Audio:/.test(l))) {
+      silent.add(input.file);
+    }
+  }
+  return silent;
+}
+
+/** Copy of `project` with `hasAudio` cleared on clips of silent files. */
+function withProbedAudio(project: VideoProject, silent: Set<File>): VideoProject {
+  if (silent.size === 0) return project;
+  return {
+    ...project,
+    tracks: project.tracks.map((t) => ({
+      ...t,
+      clips: t.clips.map((c) =>
+        c.kind === 'video' && c.hasAudio && silent.has(c.file)
+          ? { ...c, hasAudio: false }
+          : c,
+      ),
+    })),
+  };
+}
+
 export function useFFmpeg(options: UseFFmpegOptions = {}): UseFFmpegResult {
-  // Default to the multi-thread core whenever the page is cross-origin
-  // isolated — that's the only thing the user can't change by clicking
-  // a button. Explicit `multiThread: false` still wins.
-  const {
-    multiThread = isCrossOriginIsolated(),
-    autoLoad = true,
-  } = options;
+  // Single-thread core by default: @ffmpeg/core-mt 0.12's `load()`
+  // never settles under @ffmpeg/ffmpeg's module worker (verified in
+  // Chrome — the ST core loads in ~150 ms, MT hangs indefinitely).
+  // Callers can still opt in with `multiThread: true`; it is ignored
+  // when the page isn't cross-origin isolated.
+  const { autoLoad = true } = options;
+  const multiThread = (options.multiThread ?? false) && isCrossOriginIsolated();
 
   const ffmpegRef = useRef<FFmpeg | null>(null);
   const loadPromiseRef = useRef<Promise<void> | null>(null);
@@ -165,16 +244,23 @@ export function useFFmpeg(options: UseFFmpegOptions = {}): UseFFmpegResult {
     try {
       await promise;
     } catch (err) {
-      // Allow retry by clearing the cached promise.
-      loadPromiseRef.current = null;
+      // Allow retry by clearing the cached promise — but only if it is
+      // still ours. Under StrictMode the first mount's load is
+      // terminated by the dev double-unmount; its rejection must not
+      // wipe the second mount's in-flight load.
+      if (loadPromiseRef.current === promise) loadPromiseRef.current = null;
       throw err;
     } finally {
-      setIsLoading(false);
+      if (loadPromiseRef.current === promise || loadPromiseRef.current === null) {
+        setIsLoading(false);
+      }
     }
   }, [multiThread, getInstance]);
 
   useEffect(() => {
-    if (autoLoad) void load();
+    // A rejected autoload (e.g. terminated by StrictMode's dev
+    // remount) is retried by the next render's explicit load() call.
+    if (autoLoad) load().catch(() => undefined);
     return () => {
       // Tear down on unmount so wasm memory is reclaimable. Subsequent
       // mounts will instantiate fresh.
@@ -198,7 +284,7 @@ export function useFFmpeg(options: UseFFmpegOptions = {}): UseFFmpegResult {
         phase('preparing');
         if (!isLoaded) await load();
         const ffmpeg = getInstance();
-        const plan = buildExportPlan(project, exportOpts);
+        const draft = buildExportPlan(project, exportOpts);
 
         // Reset progress for this render — the load step may have left
         // it at a stale value.
@@ -207,10 +293,17 @@ export function useFFmpeg(options: UseFFmpegOptions = {}): UseFFmpegResult {
         // Write every source file to the wasm FS. `fetchFile` reads a
         // File/Blob/URL into a Uint8Array; we write under the name the
         // filter graph expects.
-        for (const input of plan.inputs) {
+        for (const input of draft.inputs) {
           const bytes = await fetchFile(input.file);
           await ffmpeg.writeFile(input.name, bytes);
         }
+        // Re-plan with verified audio presence. Input names depend
+        // only on the set of files, so the files written above match.
+        const silent = await filesWithoutAudio(ffmpeg, draft.inputs);
+        const plan =
+          silent.size === 0
+            ? draft
+            : buildExportPlan(withProbedAudio(project, silent), exportOpts);
 
         // Rasterize each overlay to a PNG and write it alongside.
         // Done serially because the canvas rasterizer is synchronous
@@ -221,12 +314,7 @@ export function useFFmpeg(options: UseFFmpegOptions = {}): UseFFmpegResult {
         }
 
         phase('encoding');
-        const exitCode = await ffmpeg.exec(plan.args);
-        if (exitCode !== 0) {
-          throw new Error(
-            `ffmpeg exited with code ${exitCode}. Check the browser console for the full log.`,
-          );
-        }
+        await execOrThrow(ffmpeg, plan.args, 'Export');
 
         phase('finalizing');
         const data = await ffmpeg.readFile(plan.outputFile);
@@ -263,20 +351,20 @@ export function useFFmpeg(options: UseFFmpegOptions = {}): UseFFmpegResult {
     ): Promise<Blob> => {
       if (!isLoaded) await load();
       const ffmpeg = getInstance();
-      const plan = buildAudioExtractionPlan(project, options);
+      const draft = buildAudioExtractionPlan(project, options);
 
       setProgress(0);
-      for (const input of plan.inputs) {
+      for (const input of draft.inputs) {
         const bytes = await fetchFile(input.file);
         await ffmpeg.writeFile(input.name, bytes);
       }
+      const silent = await filesWithoutAudio(ffmpeg, draft.inputs);
+      const plan =
+        silent.size === 0
+          ? draft
+          : buildAudioExtractionPlan(withProbedAudio(project, silent), options);
 
-      const exitCode = await ffmpeg.exec(plan.args);
-      if (exitCode !== 0) {
-        throw new Error(
-          `Audio extraction failed (ffmpeg code ${exitCode}). Check the browser console for the full log.`,
-        );
-      }
+      await execOrThrow(ffmpeg, plan.args, 'Audio extraction');
 
       const data = await ffmpeg.readFile(plan.outputFile);
       const bytes =
@@ -333,10 +421,7 @@ export function useFFmpeg(options: UseFFmpegOptions = {}): UseFFmpegResult {
         outName,
       ];
 
-      const exitCode = await ffmpeg.exec(args);
-      if (exitCode !== 0) {
-        throw new Error(`Audio split failed (ffmpeg code ${exitCode}).`);
-      }
+      await execOrThrow(ffmpeg, args, 'Audio split');
 
       const data = await ffmpeg.readFile(outName);
       const bytes =

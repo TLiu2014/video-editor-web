@@ -7,6 +7,13 @@ import {
 import { computeTimelineDuration } from '../lib/clipRate';
 import { newId } from '../lib/ids';
 import {
+  baseTrackClips,
+  MAX_TRANSITION_DURATION,
+  maxTransitionDuration,
+  MIN_TRANSITION_DURATION,
+  previousTouching,
+} from '../lib/transitions';
+import {
   closeGaps as closeGapsOp,
   insertAssetClip,
   joinClips as joinClipsOp,
@@ -29,6 +36,7 @@ import type {
   OverlayId,
   TextOverlay,
   TrackId,
+  TransitionKind,
   VideoClip,
   VideoClipEffects,
   VideoProject,
@@ -264,6 +272,15 @@ export interface TimelineActions {
     patch: Partial<Omit<TextOverlay, 'id'>>,
   ) => void;
 
+  /**
+   * Set (or clear with null) the transition into a V1 video clip from
+   * the clip touching its left edge. Duration is clamped to what fits.
+   */
+  setClipTransitionIn: (
+    clipId: ClipId,
+    transition: { kind: TransitionKind; duration: number } | null,
+  ) => void;
+
   /** Set the volume of an audio clip. Values are clamped to [0, 2]. */
   setClipVolume: (clipId: ClipId, volume: number) => void;
 
@@ -446,8 +463,13 @@ function splitClipAt<T extends AnyClip>(
       rate,
     ),
   } as T;
+  // The right half starts at a fresh cut inside the old clip, so a
+  // transition into the original clip stays with the left half.
+  const { transitionIn: _keepOnLeft, ...rest } = clip as AnyClip & {
+    transitionIn?: unknown;
+  };
   const right = {
-    ...clip,
+    ...rest,
     id: newClipId,
     startOffset: playhead,
     trimStart: splitOffsetIntoSource,
@@ -1194,6 +1216,42 @@ export const useTimelineStore = create<TimelineStore>()(
                   ? { ...clip, volume: clamped }
                   : clip,
               ),
+            })),
+          },
+        };
+      }),
+
+    setClipTransitionIn: (clipId, transition) =>
+      set((state) => {
+        const project = state.currentProject;
+        if (!project) return state;
+        const clips = baseTrackClips(project);
+        const clip = clips.find((c) => c.id === clipId);
+        if (!clip) return state;
+        let next: VideoClip;
+        if (transition === null) {
+          const { transitionIn: _drop, ...rest } = clip;
+          next = rest;
+        } else {
+          const prev = previousTouching(clips, clip);
+          const max = prev ? maxTransitionDuration(prev, clip) : MAX_TRANSITION_DURATION;
+          next = {
+            ...clip,
+            transitionIn: {
+              kind: transition.kind,
+              duration: Math.max(
+                MIN_TRANSITION_DURATION,
+                Math.min(max, transition.duration),
+              ),
+            },
+          };
+        }
+        return {
+          currentProject: {
+            ...project,
+            tracks: project.tracks.map((t) => ({
+              ...t,
+              clips: t.clips.map((c) => (c.id === clipId ? next : c)),
             })),
           },
         };
