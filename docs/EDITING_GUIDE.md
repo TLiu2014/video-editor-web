@@ -275,7 +275,7 @@ Add a simple text layer over your video.
 
 A new overlay appears at the playhead with default text **“Sample text”**, white color, and the **Inter** font.
 
-**Edit text:** Select the overlay (click it in the preview or choose it from the timeline context). In **Properties → Text Overlay**, change:
+**Edit text:** Select the overlay by clicking it in the preview or its bar in the timeline's overlay lane. In **Properties → Text Overlay**, change:
 
 - Text content
 - Position (X / Y)
@@ -287,9 +287,44 @@ A new overlay appears at the playhead with default text **“Sample text”**, w
 
 Text overlays appear in the preview and are burned into the exported video.
 
+### The overlay lane
+
+The row just under the timeline ruler shows every text overlay, caption and annotation as a bar: blue for text, red for annotations. Overlays that overlap in time stack onto extra rows.
+
+- **Drag a bar** to change when it appears.
+- **Drag either end** to change when it starts or ends.
+- Both snap to clip edges, the playhead and ruler ticks.
+- Click a bar to select it, then press **⌫** to delete it.
+
 ---
 
-## 10. Captions
+## 10. Annotations (callouts, arrows, shapes)
+
+Add one with **Edit → Add Callout / Add Arrow / Add Rectangle / Add Ellipse**, or search the command palette (⌘K). It appears at the playhead for 3 seconds, and its bar shows in the overlay lane.
+
+| Annotation | Use it for |
+|---|---|
+| **Callout** | A filled box with text, for labels and notes |
+| **Arrow** | Pointing at something |
+| **Rectangle** | Outlining or highlighting an area. Turn up the fill opacity for a highlight box |
+| **Ellipse** | Circling something |
+
+**In the preview:**
+- Drag an annotation to move it.
+- When it's selected, drag the dot at its bottom-right corner to resize it. An arrow has a dot at each end instead: drag the tip or the tail.
+
+**In Properties:**
+- Outline color and width (for an arrow, its color and thickness).
+- Fill color and opacity.
+- Corner radius (rectangle and callout).
+- For a callout: its text, text color and size. Text wraps to fit the box, and you can type line breaks.
+- When it starts and how long it lasts.
+
+Annotations are drawn the same way in the preview and in the export, so what you see is what you get. Defaults scale with the project's height, so lines and text look the same size in 720p and 4K.
+
+---
+
+## 11. Captions
 
 **Edit → Auto Captions…** creates captions from the timeline's audio, or imports a subtitle file.
 
@@ -307,7 +342,7 @@ Either way, each caption becomes a text overlay along the bottom of the frame. I
 
 ---
 
-## 11. Export to MP4
+## 12. Export to MP4
 
 When your edit is ready:
 
@@ -334,7 +369,7 @@ When your edit is ready:
 
 ---
 
-## 12. Projects and archives
+## 13. Projects and archives
 
 - **Autosave:** every edit is saved in this browser automatically. The status bar shows when it last saved. Undo history (50 steps) lasts only while the project is open.
 - **Switch projects:** click the project name at the top left to rename it, switch to another project or create a new one. Use **File → Open Project…** to see all saved projects.
@@ -396,6 +431,8 @@ Additional commands (undo, ripple delete, etc.) are available from the command p
 | Still images (PNG, JPEG, WebP; others converted) | Yes |
 | Picture-in-picture (drag and resize in the preview) | Yes (V2+ audio is muted) |
 | Text overlay with default font | Yes |
+| Annotations (callout, arrow, rectangle, ellipse) | Yes |
+| Overlay lane on the timeline (move and trim text, captions, annotations) | Yes |
 | Auto captions (speech-to-text) and .srt import | Yes |
 | Project archives (.zip with media) | Yes |
 | Export to standard MP4 | Yes |

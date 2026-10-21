@@ -1,5 +1,6 @@
 import { clipRate, ffmpegAtempoChain } from './clipRate';
 import { ffmpegEffectFilters } from './effects';
+import { isTextOverlay, shapePixelBounds } from './shapes';
 import {
   effectiveTransitionIn,
   MAX_TRANSITION_DURATION,
@@ -8,8 +9,8 @@ import {
 import { isTrackAudible } from './trackAudibility';
 import type { AudioFormat } from '../types/stt';
 import type {
+  AnyOverlay,
   AudioClip,
-  TextOverlay,
   TimelineTrack,
   VideoClip,
   VideoProject,
@@ -94,7 +95,7 @@ export interface ExportPlan {
    * The hook is responsible for rasterizing each `overlay` and
    * writing it to `name` before exec.
    */
-  overlayInputs: { name: string; overlay: TextOverlay }[];
+  overlayInputs: { name: string; overlay: AnyOverlay }[];
   /** The full argv passed to `ffmpeg.exec`. */
   args: string[];
   /** Virtual FS filename of the output, e.g. `output.mp4`. */
@@ -567,14 +568,14 @@ export function buildExportPlan(
     }
   }
 
-  // Chain text overlays onto the layered video. Each overlay takes
-  // one extra input (a PNG sized to its rendered text) and produces
-  // a new labeled stream. `enable='between(t,a,b)'` composites the
+  // Chain text overlays and annotation shapes onto the layered video.
+  // Each takes one extra input (a PNG sized to its rendered content)
+  // and produces a new labeled stream. `enable='between(t,a,b)'` composites the
   // PNG only while the overlay is active.
   const overlays = project.overlays.slice().sort(
     (a, b) => a.startOffset - b.startOffset,
   );
-  const overlayInputs: { name: string; overlay: TextOverlay }[] = overlays.map(
+  const overlayInputs: { name: string; overlay: AnyOverlay }[] = overlays.map(
     (overlay, i) => ({ name: `overlay_${i}.png`, overlay }),
   );
 
@@ -584,10 +585,17 @@ export function buildExportPlan(
     const nextLabel = i === overlays.length - 1 ? 'outv' : `vov${i}`;
     const startSec = overlay.startOffset.toFixed(3);
     const endSec = (overlay.startOffset + overlay.duration).toFixed(3);
+    // Must match where the rasterizer puts the PNG's top-left.
+    const origin = isTextOverlay(overlay)
+      ? {
+          x: Math.round(overlay.style.position.x * width),
+          y: Math.round(overlay.style.position.y * height),
+        }
+      : shapePixelBounds(overlay, width, height);
     filterParts.push(
       `[${videoOutLabel}][${inputIdx}:v]overlay=` +
-        `x=${(overlay.style.position.x * width).toFixed(0)}:` +
-        `y=${(overlay.style.position.y * height).toFixed(0)}:` +
+        `x=${origin.x}:` +
+        `y=${origin.y}:` +
         `enable='between(t,${startSec},${endSec})'[${nextLabel}]`,
     );
     videoOutLabel = nextLabel;

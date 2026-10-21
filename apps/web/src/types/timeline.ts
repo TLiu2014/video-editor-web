@@ -193,11 +193,52 @@ export interface TextOverlayStyle {
 
 export interface TextOverlay {
   id: OverlayId;
+  /** Absent on text overlays saved before annotations existed. */
+  kind?: 'text';
   text: string;
   startOffset: number;
   duration: number;
   style: TextOverlayStyle;
 }
+
+/** Annotation shapes (Camtasia's "Annotations") — see lib/shapes.ts. */
+export type ShapeKind = 'rect' | 'ellipse' | 'arrow' | 'callout';
+
+export interface ShapeStyle {
+  /** Outline color, `#RRGGBB`. */
+  stroke: string;
+  /** Outline / arrow line width in pixels at project resolution. 0 = none. */
+  strokeWidth: number;
+  /** Fill color, `#RRGGBB`. Arrows ignore it. */
+  fill: string;
+  /** Fill opacity 0–1. 0 = outline only. */
+  fillOpacity: number;
+  /** Corner radius in project pixels (rect / callout). */
+  radius: number;
+  /** Callout text color and size (project pixels). */
+  textColor: string;
+  textSize: number;
+}
+
+export interface ShapeOverlay {
+  id: OverlayId;
+  kind: ShapeKind;
+  startOffset: number;
+  duration: number;
+  /**
+   * Geometry as 0–1 fractions of the project frame. For box shapes
+   * (x, y) is the top-left and (w, h) the size, both positive. For an
+   * arrow, (x, y) is the tail and (x + w, y + h) the tip, so w / h may
+   * be negative.
+   */
+  box: { x: number; y: number; w: number; h: number };
+  /** Callout text (may contain newlines). */
+  text?: string;
+  style: ShapeStyle;
+}
+
+/** Anything drawn over the video for a span of time. */
+export type AnyOverlay = TextOverlay | ShapeOverlay;
 
 export interface TimelineTrack {
   id: TrackId;
@@ -227,7 +268,7 @@ export interface VideoProject {
   /** Output audio sample rate (Hz). Standard values: 44100 or 48000. */
   audioSampleRate: number;
   tracks: TimelineTrack[];
-  overlays: TextOverlay[];
+  overlays: AnyOverlay[];
   /** Media library. Every clip's `mediaId` resolves to an entry here. */
   media: MediaAsset[];
 }

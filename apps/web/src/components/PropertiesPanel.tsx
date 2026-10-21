@@ -2,6 +2,7 @@ import {
   LayersIcon,
   Music2Icon,
   RotateCcwIcon,
+  ShapesIcon,
   Trash2Icon,
   TypeIcon,
   VideoIcon,
@@ -10,6 +11,7 @@ import {
 } from 'lucide-react';
 import { useMemo } from 'react';
 import { formatTime } from '../lib/formatTime';
+import { isTextOverlay, SHAPE_LABELS } from '../lib/shapes';
 import {
   baseTrackClips,
   DEFAULT_TRANSITION_DURATION,
@@ -24,6 +26,8 @@ import type {
   AnyClip,
   AudioClip,
   ClipId,
+  ShapeOverlay,
+  ShapeStyle,
   TextOverlay,
   VideoClip,
 } from '../types/timeline';
@@ -58,7 +62,13 @@ export function PropertiesPanel() {
     return <MultiClipProperties clipIds={selectedClipIds} />;
   }
   if (selectedClip) return <ClipProperties clip={selectedClip} />;
-  if (selectedOverlay) return <OverlayProperties overlay={selectedOverlay} />;
+  if (selectedOverlay) {
+    return isTextOverlay(selectedOverlay) ? (
+      <OverlayProperties overlay={selectedOverlay} />
+    ) : (
+      <ShapeProperties shape={selectedOverlay} />
+    );
+  }
   return null;
 }
 
@@ -953,6 +963,179 @@ function OverlayProperties({ overlay }: { overlay: TextOverlay }) {
         />
       </div>
     </PanelShell>
+  );
+}
+
+/** Annotation shape: style, callout text, timing. */
+function ShapeProperties({ shape }: { shape: ShapeOverlay }) {
+  const updateShape = useTimelineStore((s) => s.updateShape);
+  const removeOverlay = useTimelineStore((s) => s.removeOverlay);
+  const { style } = shape;
+  const setStyle = (patch: Partial<ShapeStyle>) =>
+    updateShape(shape.id, { style: { ...style, ...patch } });
+  const isArrow = shape.kind === 'arrow';
+  const hasCorners = shape.kind === 'rect' || shape.kind === 'callout';
+
+  return (
+    <PanelShell
+      title="Annotation"
+      footer={
+        <Button
+          variant="danger"
+          size="sm"
+          icon={<Trash2Icon />}
+          onClick={() => removeOverlay(shape.id)}
+          className="w-full justify-center"
+          title="Delete annotation (Delete)"
+        >
+          Delete annotation
+        </Button>
+      }
+    >
+      <div className="flex flex-col gap-5">
+        <div className="flex items-start gap-2.5">
+          <div className="flex size-9 items-center justify-center rounded-md bg-accent/20 text-accent">
+            <ShapesIcon className="size-4" />
+          </div>
+          <div className="min-w-0 flex-1 leading-tight">
+            <div className="truncate text-[13px] font-medium text-text-primary">
+              {SHAPE_LABELS[shape.kind]}
+            </div>
+            <div className="font-mono text-[10px] uppercase tracking-wide text-text-muted">
+              drag in the preview to place
+            </div>
+          </div>
+        </div>
+
+        {shape.kind === 'callout' ? (
+          <div className="flex flex-col gap-1.5">
+            <label
+              htmlFor={`sh-text-${shape.id}`}
+              className="text-[11px] uppercase tracking-wide text-text-muted"
+            >
+              Text
+            </label>
+            <textarea
+              id={`sh-text-${shape.id}`}
+              value={shape.text ?? ''}
+              onChange={(e) => updateShape(shape.id, { text: e.target.value })}
+              rows={3}
+              className="w-full resize-y rounded border border-border bg-panel-elevated px-2 py-1.5 text-[13px] text-text-primary outline-none focus:border-accent"
+            />
+            <ColorRow
+              id={`sh-tc-${shape.id}`}
+              label="Text color"
+              value={style.textColor}
+              onChange={(v) => setStyle({ textColor: v })}
+            />
+            <SliderRow
+              label="Text size"
+              value={style.textSize}
+              min={12}
+              max={160}
+              step={1}
+              format={(v) => `${Math.round(v)}px`}
+              onChange={(v) => setStyle({ textSize: v })}
+            />
+          </div>
+        ) : null}
+
+        <ColorRow
+          id={`sh-stroke-${shape.id}`}
+          label={isArrow ? 'Color' : 'Outline'}
+          value={style.stroke}
+          onChange={(v) => setStyle({ stroke: v })}
+        />
+        <SliderRow
+          label={isArrow ? 'Thickness' : 'Outline width'}
+          value={style.strokeWidth}
+          min={isArrow ? 1 : 0}
+          max={40}
+          step={1}
+          format={(v) => (v === 0 ? 'None' : `${Math.round(v)}px`)}
+          onChange={(v) => setStyle({ strokeWidth: v })}
+        />
+        {isArrow ? null : (
+          <>
+            <ColorRow
+              id={`sh-fill-${shape.id}`}
+              label="Fill"
+              value={style.fill}
+              onChange={(v) => setStyle({ fill: v })}
+            />
+            <SliderRow
+              label="Fill opacity"
+              value={style.fillOpacity}
+              min={0}
+              max={1}
+              step={0.01}
+              format={(v) => (v === 0 ? 'None' : `${Math.round(v * 100)}%`)}
+              onChange={(v) => setStyle({ fillOpacity: v })}
+            />
+          </>
+        )}
+        {hasCorners ? (
+          <SliderRow
+            label="Corner radius"
+            value={style.radius}
+            min={0}
+            max={120}
+            step={1}
+            format={(v) => `${Math.round(v)}px`}
+            onChange={(v) => setStyle({ radius: v })}
+          />
+        ) : null}
+
+        <SliderRow
+          label="Start"
+          value={shape.startOffset}
+          min={0}
+          max={Math.max(shape.startOffset + 30, 60)}
+          step={0.1}
+          format={(v) => formatTime(v, false)}
+          onChange={(v) => updateShape(shape.id, { startOffset: v })}
+        />
+        <SliderRow
+          label="Duration"
+          value={shape.duration}
+          min={0.5}
+          max={60}
+          step={0.1}
+          format={(v) => formatTime(v, false)}
+          onChange={(v) => updateShape(shape.id, { duration: v })}
+        />
+      </div>
+    </PanelShell>
+  );
+}
+
+function ColorRow({
+  id,
+  label,
+  value,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between">
+      <label
+        htmlFor={id}
+        className="text-[11px] uppercase tracking-wide text-text-muted"
+      >
+        {label}
+      </label>
+      <input
+        id={id}
+        type="color"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-7 w-12 cursor-pointer rounded border border-border bg-chrome"
+      />
+    </div>
   );
 }
 

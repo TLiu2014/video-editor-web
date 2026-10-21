@@ -1,7 +1,8 @@
 import { useTimelineStore } from '../store/useTimelineStore';
 import { useTimelineViewStore } from '../store/useTimelineViewStore';
-import type { TrackId } from '../types/timeline';
+import type { ShapeKind, TrackId } from '../types/timeline';
 import { newId } from './ids';
+import { createShapeOverlay } from './shapes';
 import { checkJoin } from './timelineOps';
 import {
   baseTrackClips,
@@ -219,4 +220,14 @@ export function addTransitionInto(clipId: string): void {
     });
   }
   s.selectClip(clipId);
+}
+
+/** Add an annotation shape at the playhead and select it. */
+export function addShapeAtPlayhead(kind: ShapeKind): void {
+  const s = useTimelineStore.getState();
+  const project = s.currentProject;
+  if (!project) return;
+  s.addOverlay(
+    createShapeOverlay(kind, s.playheadPosition, project.resolution.height),
+  );
 }

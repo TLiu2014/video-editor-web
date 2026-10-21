@@ -91,7 +91,7 @@ VideoProject
 ├── media: MediaAsset[]                        the library: one entry per imported file
 ├── tracks: TimelineTrack[]                    ordered; type 'video' | 'audio'
 │   └── clips: (VideoClip | AudioClip)[]       each clip references a MediaAsset via mediaId
-└── overlays: TextOverlay[]                    text layers (project-level, not on a track)
+└── overlays: (TextOverlay | ShapeOverlay)[]   text and annotations (project-level, shown in the overlay lane)
 ```
 
 - **Time is in seconds as floats.** Each clip has two time domains:
@@ -215,6 +215,14 @@ Volume 0–150% (audio clips; the store accepts up to 200%), fade in and out, sp
 ### Text, captions, export
 Text overlays (text, position, size, color, duration; drag in the preview), Auto Captions and `.srt` import (both in the Captions dialog), and MP4 export.
 
+Annotations are `ShapeOverlay`s in `project.overlays`: callout, arrow, rectangle and ellipse.
+- **Geometry:** a `box` stored as frame fractions. For an arrow, the box runs from the tail to the tip, so its width and height can be negative.
+- **Style:** stroke, fill and opacity, corner radius, and callout text, all in project pixels.
+- **One renderer:** `lib/shapes.ts` `drawShape` draws the preview canvas and the export PNG, so the two match. `shapePixelBounds` gives the exact rectangle that's rasterized and where `overlay` places it.
+- **Editing:** drag to move in the preview; resize from a corner handle, or from tail and tip handles on arrows.
+- **Overlay lane** (`OverlayLane`): every overlay, text or shape, appears in a lane under the ruler. Overlapping items stack into rows. Bars move and trim with the same snapping as clips.
+- Because shapes live in `overlays`, In/Out range edits, snapping, undo and serialization all handle them with no special cases. `kind` is absent on older text overlays, which `isTextOverlay` treats as text.
+
 PiP layers on V2+ with a transform can be dragged to move them in the preview, and resized from a corner handle while selected (`PreviewOverlayLayer`). Full-frame layers stay click-through.
 
 ---
@@ -265,6 +273,8 @@ Which established editor each behavior follows. "Own" means a choice made for th
 | Command palette (⌘K) | VS Code / Linear-style palettes | Not from a video editor. |
 | Right-click clip menu | Universal | |
 | Undo history (50 steps, drags merged) | Universal | |
+| Annotations: callout, arrow, rectangle, ellipse | Camtasia *Annotations* | A much smaller set: no sketch-motion, blur or spotlight shapes, no styles library, and no built-in fade in/out. Added from the Edit menu or palette rather than dragged from a tab. |
+| Overlay lane | Own; similar to Camtasia, where annotations sit on tracks | Here every overlay shares one auto-stacking lane above the video tracks. |
 
 ---
 
@@ -272,7 +282,7 @@ Which established editor each behavior follows. "Own" means a choice made for th
 
 - Transitions only on V1, and only the six types above; the preview shows the other clip as a still frame rather than playing it.
 - No keyframes or animation.
-- No shapes or annotations (Camtasia *Annotations*), and no cursor or zoom-and-pan effects. Animated GIFs import as their first frame.
+- Annotations have no fade in/out or animation, and there are no blur, spotlight or sketch-motion shapes. There are no cursor or zoom-and-pan effects. Animated GIFs import as their first frame.
 - Export is single-threaded (see section 1).
 - No JKL shuttle, no track lock, no track height control, no slip or slide tools.
 - Text overlays: no font family, weight, background or alignment; they aren't on a track.
@@ -286,6 +296,7 @@ Which established editor each behavior follows. "Own" means a choice made for th
 
 ## 6. Testing
 
+- `lib/shapes.test.ts` covers shape bounds (including arrows pointing up and left), default scaling, labels, and overlay-lane row packing.
 - Browser smoke test: `apps/web/e2e/smoke.mjs` (`pnpm e2e` against a running dev server). It drives headless Chrome through import, resizing, reorder, cross-track drag, the range shortcuts, undo, split/join/delete, PiP drag and resize, `.srt` import and the context menu.
 - Vitest (`apps/web`, `pnpm test`) covers the pure editing rules (`lib/timelineOps.test.ts`), the load path and legacy migration (`serialization/project.test.ts`), and store actions (`store/useTimelineStore.test.ts`).
 - `lib/filterGraph.ffmpeg.test.ts` runs real export plans through native ffmpeg (`RUN_FFMPEG=1 pnpm test`). It checks still images, transparent PNG overlays, V2 alpha fades, dissolve length and blending, held edge frames, wipe direction, and fades going through black. The smoke test also exports through ffmpeg.wasm in the browser and checks the MP4 with ffprobe.

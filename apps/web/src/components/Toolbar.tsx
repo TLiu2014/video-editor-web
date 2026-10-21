@@ -1,5 +1,9 @@
 import {
   CaptionsIcon,
+  CircleIcon,
+  MessageSquareIcon,
+  MoveUpRightIcon,
+  SquareIcon,
   DownloadIcon,
   FilmIcon,
   FolderOpenIcon,
@@ -22,6 +26,7 @@ import {
 } from '../lib/filePickers';
 import { newId } from '../lib/ids';
 import { isMac } from '../lib/platform';
+import { addShapeAtPlayhead } from '../lib/editActions';
 import { importFilesToLibrary } from '../lib/importMedia';
 import { trackEnd } from '../lib/projectMetrics';
 import {
@@ -32,6 +37,7 @@ import { useFFmpegContext } from '../providers/AppProviders';
 import { useDialogsStore } from '../store/useDialogsStore';
 import { useHistoryStore } from '../store/useHistoryStore';
 import { useTimelineStore } from '../store/useTimelineStore';
+import type { ShapeKind } from '../types/timeline';
 import { ExportDialog } from './ExportDialog';
 import { ProjectListDialog } from './ProjectListDialog';
 import { ProjectSwitcher } from './ProjectSwitcher';
@@ -43,6 +49,13 @@ import { Button } from './ui/Button';
 import * as Menu from './ui/DropdownMenu';
 
 const MOD = isMac ? '⌘' : 'Ctrl';
+
+const ANNOTATION_ITEMS: { kind: ShapeKind; label: string; icon: React.ReactNode }[] = [
+  { kind: 'callout', label: 'Add Callout', icon: <MessageSquareIcon /> },
+  { kind: 'arrow', label: 'Add Arrow', icon: <MoveUpRightIcon /> },
+  { kind: 'rect', label: 'Add Rectangle', icon: <SquareIcon /> },
+  { kind: 'ellipse', label: 'Add Ellipse', icon: <CircleIcon /> },
+];
 
 export function Toolbar() {
   const project = useTimelineStore((s) => s.currentProject);
@@ -302,6 +315,16 @@ export function Toolbar() {
             >
               Add Text Overlay
             </Menu.Item>
+            {ANNOTATION_ITEMS.map((item) => (
+              <Menu.Item
+                key={item.kind}
+                icon={item.icon}
+                disabled={!project}
+                onSelect={() => addShapeAtPlayhead(item.kind)}
+              >
+                {item.label}
+              </Menu.Item>
+            ))}
             <Menu.Item
               icon={<CaptionsIcon />}
               disabled={!project || !hasClips || !ffmpegLoaded}

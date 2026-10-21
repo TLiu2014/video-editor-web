@@ -1,4 +1,5 @@
-import type { TextOverlay, VideoProject } from '../types/timeline';
+import { drawShape, isTextOverlay, shapePixelBounds } from './shapes';
+import type { AnyOverlay, VideoProject } from '../types/timeline';
 
 export interface RenderedOverlay {
   png: Uint8Array;
@@ -28,11 +29,21 @@ export interface RenderedOverlay {
  * paths produce identical pixels.
  */
 export async function renderOverlayToPNG(
-  overlay: TextOverlay,
+  overlay: AnyOverlay,
   project: VideoProject,
 ): Promise<RenderedOverlay> {
   const projectWidth = project.resolution.width;
   const projectHeight = project.resolution.height;
+  if (!isTextOverlay(overlay)) {
+    // Annotation shape: rasterize its exact pixel bounds with the same
+    // routine the preview uses.
+    const b = shapePixelBounds(overlay, projectWidth, projectHeight);
+    const png = await drawToCanvas(b.width, b.height, (ctx) => {
+      ctx.translate(-b.x, -b.y);
+      drawShape(ctx, overlay, projectWidth, projectHeight);
+    });
+    return { png, x: b.x, y: b.y, width: b.width, height: b.height };
+  }
   const font = `600 ${overlay.style.size}px Inter, system-ui, -apple-system, sans-serif`;
 
   // First pass: measure on a small detached canvas. We need the

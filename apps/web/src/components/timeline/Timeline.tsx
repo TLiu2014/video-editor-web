@@ -16,6 +16,7 @@ import {
 import { ClipContextMenu } from './ClipContextMenu';
 import { EditToolbar } from './EditToolbar';
 import { InOutMarkers } from './InOutMarkers';
+import { OverlayLane, overlayLaneHeight } from './OverlayLane';
 import { Playhead } from './Playhead';
 import { Ruler } from './Ruler';
 import { SnapIndicator } from './SnapIndicator';
@@ -67,7 +68,7 @@ export function Timeline() {
       acc + (t.type === 'video' ? TRACK_HEIGHT_VIDEO : TRACK_HEIGHT_AUDIO),
     0,
   );
-  const totalHeight = RULER_HEIGHT + tracksHeight;
+  const totalHeight = RULER_HEIGHT + overlayLaneHeight(project) + tracksHeight;
 
   // Precompute the same-type index for each track so the Track
   // component just receives the number it needs to render (V1, A2, …).
@@ -122,6 +123,7 @@ export function Timeline() {
           style={{ width, height: totalHeight }}
         >
           <Ruler duration={duration} />
+          <OverlayLane width={width} />
           {project.tracks.map((track, idx) => (
             <Track
               key={track.id}

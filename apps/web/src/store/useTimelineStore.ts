@@ -29,11 +29,13 @@ import {
 import { serializeProject } from '../serialization/project';
 import type {
   AnyClip,
+  AnyOverlay,
   AudioClip,
   ClipId,
   MediaAsset,
   MediaId,
   OverlayId,
+  ShapeOverlay,
   TextOverlay,
   TrackId,
   TransitionKind,
@@ -260,7 +262,7 @@ export interface TimelineActions {
   /** Clear `groupId` on every clip in the given group. */
   ungroupClips: (groupId: string) => void;
 
-  addOverlay: (overlay: TextOverlay) => void;
+  addOverlay: (overlay: AnyOverlay) => void;
   /**
    * Append multiple overlays in a single mutation (one history
    * entry). Used by auto-captions, which adds many overlays at once.
@@ -270,6 +272,11 @@ export interface TimelineActions {
   updateOverlay: (
     overlayId: OverlayId,
     patch: Partial<Omit<TextOverlay, 'id'>>,
+  ) => void;
+  /** Patch an annotation shape (geometry, style, text, timing). */
+  updateShape: (
+    overlayId: OverlayId,
+    patch: Partial<Omit<ShapeOverlay, 'id' | 'kind'>>,
   ) => void;
 
   /**
@@ -1195,12 +1202,23 @@ export const useTimelineStore = create<TimelineStore>()(
         return {
           currentProject: {
             ...state.currentProject,
+            // Each patch type only carries its own kind's fields; the
+            // caller picks the kind (updateOverlay for text,
+            // updateShape for annotations).
             overlays: state.currentProject.overlays.map((o) =>
-              o.id === overlayId ? { ...o, ...patch } : o,
+              o.id === overlayId ? ({ ...o, ...patch } as AnyOverlay) : o,
             ),
           },
         };
       }),
+
+    // Same shallow merge as updateOverlay; the separate action exists
+    // so callers get the shape's field types instead of the text's.
+    updateShape: (overlayId, patch) =>
+      get().updateOverlay(
+        overlayId,
+        patch as Partial<Omit<TextOverlay, 'id'>>,
+      ),
 
     setClipVolume: (clipId, volume) =>
       set((state) => {

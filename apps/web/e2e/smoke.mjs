@@ -110,7 +110,8 @@ ok('undo restores A', l[0].clips.length === 1, JSON.stringify(l[0].clips));
 // split + join
 a = await (await clipEl('clipA')).boundingBox();
 await page.mouse.click(a.x + 30, a.y + 20); await wait();
-await page.mouse.click(a.x + 160, a.y - 30); await wait(); // ruler click → playhead
+const rulerY = (await (await page.$('[data-timeline-surface]')).boundingBox()).y + 8;
+await page.mouse.click(a.x + 160, rulerY); await wait(); // ruler click → playhead
 await page.keyboard.press('KeyS'); await wait();
 ok('split makes 2', (await layout())[0].clips.length === 2);
 // ⌘A with 2+ clips used to crash the Properties panel (selector loop).
@@ -138,8 +139,7 @@ await page.keyboard.press('Escape'); await wait();
 const clipBEl = await clipEl('clipB');
 const bb = await clipBEl.boundingBox();
 await page.mouse.click(bb.x + bb.width / 2, bb.y + 20); await wait();
-const rulerTop = (await (await page.$('[data-timeline-surface]')).boundingBox()).y + 8;
-await page.mouse.click(bb.x + bb.width / 2, rulerTop); await wait();
+await page.mouse.click(bb.x + bb.width / 2, rulerY); await wait();
 await page.mouse.click(bb.x + bb.width / 2, bb.y + 20); await wait();
 await (await btn('Enable PiP')).click(); await wait(400);
 const pip = await page.$('[data-pip-layer]');
@@ -213,6 +213,42 @@ const stillShown = await page.evaluate(() =>
   [...document.querySelectorAll('img')].some((i) => i.style.opacity === '1' && i.src.startsWith('blob:')),
 );
 ok('still shows in preview', stillShown);
+// Annotations: add a callout at 1s via the palette, retime it by
+// dragging its bar in the overlay lane, then add an arrow and drag
+// its tip in the preview.
+// Scroll the timeline back to 0 (earlier steps scrolled it), then
+// re-measure before clicking the ruler at 1s.
+await page.$eval('[data-timeline-surface]', (el) => { el.parentElement.scrollLeft = 0; }); await wait(200);
+const surfNow = await (await page.$('[data-timeline-surface]')).boundingBox();
+await page.mouse.click(surfNow.x + 1 * 80, surfNow.y + 8); await wait(300);
+const palette = async (label) => {
+  await page.keyboard.down('Meta'); await page.keyboard.press('KeyK'); await page.keyboard.up('Meta'); await wait();
+  await page.keyboard.type(label); await wait(); await page.keyboard.press('Enter'); await wait(400);
+};
+await palette('Add Callout');
+ok('callout drawn in preview', !!(await page.$('[data-shape-overlay]')));
+const bar = await page.$('[data-overlay-bar]');
+ok('callout appears in the overlay lane', !!bar);
+const barBox = await bar.boundingBox();
+await page.mouse.move(barBox.x + barBox.width / 2, barBox.y + barBox.height / 2); await page.mouse.down();
+await page.mouse.move(barBox.x + barBox.width / 2 + 80, barBox.y + barBox.height / 2, { steps: 8 }); await page.mouse.up(); await wait();
+const movedBar = await (await page.$('[data-overlay-bar]')).boundingBox();
+ok('dragging the lane bar retimes the overlay by 1s', Math.abs(movedBar.x - barBox.x - 80) < 3, `${barBox.x} -> ${movedBar.x}`);
+ok('callout now spans 2s–5s', /00:03 @ 00:02/.test(await page.$eval('[data-overlay-bar]', (e) => e.title)));
+await palette('Add Arrow');
+const tip = await page.$('[data-shape-handle="tip"]');
+ok('arrow shows tip handle when selected', !!tip);
+if (tip) {
+  const before = await (await page.$$('[data-shape-overlay]')).at(-1).boundingBox();
+  const tb = await tip.boundingBox();
+  await page.mouse.move(tb.x + 6, tb.y + 6); await page.mouse.down();
+  await page.mouse.move(tb.x + 66, tb.y + 46, { steps: 6 }); await page.mouse.up(); await wait();
+  const after = await (await page.$$('[data-shape-overlay]')).at(-1).boundingBox();
+  ok('dragging the arrow tip extends it', after.width > before.width + 40 && after.height > before.height + 30,
+    `${Math.round(before.width)}x${Math.round(before.height)} -> ${Math.round(after.width)}x${Math.round(after.height)}`);
+}
+await page.keyboard.press('Escape'); await wait();
+
 // Export through ffmpeg.wasm and wait for the download button.
 await page.keyboard.down('Meta'); await page.keyboard.press('KeyE'); await page.keyboard.up('Meta'); await wait(500);
 await page.waitForFunction(() => [...document.querySelectorAll('button')].some((b) => b.textContent?.includes('Start export') && !b.disabled), { timeout: 60000 });
@@ -234,10 +270,19 @@ if (exported) {
     return btoa(bin);
   });
   const outPath = join(MEDIA, 'export.mp4');
+  if (process.env.KEEP_EXPORT) console.log('EXPORT', outPath);
   writeFileSync(outPath, Buffer.from(b64, 'base64'));
   const probe = execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration:stream=codec_name', '-of', 'csv=p=0', outPath]).toString();
   const duration = parseFloat(probe.trim().split('\n').pop());
   ok('exported MP4 is H.264 + AAC, 15s long', /h264/.test(probe) && /aac/.test(probe) && Math.abs(duration - 15) < 0.2, probe.replace(/\n/g, ' '));
+  // The callout (white box, frame fractions x .35–.65, y .30–.46) was
+  // retimed to [2s, 5s): sample inside it, off its text.
+  const px = (t) => [...execFileSync('ffmpeg', ['-loglevel', 'error', '-ss', String(t), '-i', outPath, '-frames:v', '1',
+    '-vf', 'crop=2:2:710:345', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']).subarray(0, 3)];
+  const during = px(3);
+  const before = px(1);
+  ok('callout is burned into the export at its retimed span', Math.min(...during) > 215 && Math.min(...before) <= 215,
+    `during ${during} before ${before}`);
 }
 
 await browser.close();

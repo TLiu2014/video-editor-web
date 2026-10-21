@@ -5,6 +5,10 @@ import {
   BetweenHorizontalStartIcon,
   BrushCleaningIcon,
   CaptionsIcon,
+  CircleIcon,
+  MessageSquareIcon,
+  MoveUpRightIcon,
+  SquareIcon,
   CircleDotIcon,
   ClipboardCopyIcon,
   ClipboardPasteIcon,
@@ -38,6 +42,7 @@ import {
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import {
+  addShapeAtPlayhead,
   addTransitionAtPlayhead,
   closeGapsForSelection,
   deleteSelection,
@@ -200,6 +205,21 @@ export function useCommands(triggers: {
         });
       },
     },
+    ...(
+      [
+        ['callout', 'Add Callout', <MessageSquareIcon key="i" />, ['annotation', 'bubble', 'note', 'box']],
+        ['arrow', 'Add Arrow', <MoveUpRightIcon key="i" />, ['annotation', 'pointer']],
+        ['rect', 'Add Rectangle', <SquareIcon key="i" />, ['annotation', 'box', 'highlight', 'shape']],
+        ['ellipse', 'Add Ellipse', <CircleIcon key="i" />, ['annotation', 'circle', 'shape']],
+      ] as const
+    ).map(([kind, label, icon, keywords]) => ({
+      id: `add-${kind}`,
+      label,
+      keywords: [...keywords],
+      icon,
+      disabled: !hasProject,
+      action: () => addShapeAtPlayhead(kind),
+    })),
     {
       id: 'auto-captions',
       label: 'Auto Captions…',

@@ -6,12 +6,20 @@ import { clipCssFilter } from '../lib/effects';
 import { fadeEnvelope } from '../lib/fadeEnvelope';
 import { triggerMediaPicker } from '../lib/filePickers';
 import { findActiveVideoClip } from '../lib/projectMetrics';
+import {
+  drawShape,
+  isTextOverlay,
+  SHAPE_LABELS,
+  shapePixelBounds,
+} from '../lib/shapes';
 import { stillUrl } from '../lib/stills';
 import { transitionAt } from '../lib/transitions';
 import { useTimelineStore } from '../store/useTimelineStore';
 import { useTimelineViewStore } from '../store/useTimelineViewStore';
 import { PreviewOverlayLayer } from './PreviewOverlayLayer';
 import type {
+  AnyOverlay,
+  ShapeOverlay,
   TextOverlay,
   TransitionKind,
   VideoClip,
@@ -464,14 +472,25 @@ function PreviewOverlays() {
 
   return (
     <div ref={containerRef} className="pointer-events-none absolute inset-0">
-      {active.map((overlay) => (
-        <DraggableOverlay
-          key={overlay.id}
-          overlay={overlay}
-          containerRef={containerRef}
-          scale={scale}
-        />
-      ))}
+      {active.map((overlay) =>
+        isTextOverlay(overlay) ? (
+          <DraggableOverlay
+            key={overlay.id}
+            overlay={overlay}
+            containerRef={containerRef}
+            scale={scale}
+          />
+        ) : (
+          <ShapeView
+            key={overlay.id}
+            shape={overlay}
+            containerRef={containerRef}
+            scale={scale}
+            frameW={project.resolution.width}
+            frameH={project.resolution.height}
+          />
+        ),
+      )}
     </div>
   );
 }
@@ -572,10 +591,145 @@ function DraggableOverlay({
   );
 }
 
+type ShapeDragMode = 'move' | 'resize' | 'tail' | 'tip';
+
+/**
+ * An annotation shape in the preview: drawn on a canvas by the same
+ * `drawShape` the export rasterizes with, scaled to the preview.
+ * Drag to move; when selected, box shapes resize from the bottom-right
+ * handle and arrows expose a handle on each end.
+ */
+function ShapeView({
+  shape,
+  containerRef,
+  scale,
+  frameW,
+  frameH,
+}: {
+  shape: ShapeOverlay;
+  containerRef: React.RefObject<HTMLDivElement | null>;
+  scale: number;
+  frameW: number;
+  frameH: number;
+}) {
+  const selected = useTimelineStore((s) => s.selectedOverlayId === shape.id);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const dragRef = useRef<{
+    mode: ShapeDragMode;
+    pointerX: number;
+    pointerY: number;
+    box: ShapeOverlay['box'];
+    rectWidth: number;
+    rectHeight: number;
+  } | null>(null);
+  const b = shapePixelBounds(shape, frameW, frameH);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.max(1, Math.round(b.width * scale * dpr));
+    canvas.height = Math.max(1, Math.round(b.height * scale * dpr));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.setTransform(scale * dpr, 0, 0, scale * dpr, 0, 0);
+    ctx.clearRect(0, 0, b.width, b.height);
+    ctx.translate(-b.x, -b.y);
+    drawShape(ctx, shape, frameW, frameH);
+  }, [shape, scale, frameW, frameH, b.x, b.y, b.width, b.height]);
+
+  const begin = (e: React.PointerEvent<HTMLElement>, mode: ShapeDragMode) => {
+    e.stopPropagation();
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragRef.current = {
+      mode,
+      pointerX: e.clientX,
+      pointerY: e.clientY,
+      box: shape.box,
+      rectWidth: rect.width,
+      rectHeight: rect.height,
+    };
+    useTimelineStore.getState().selectOverlay(shape.id);
+  };
+  const move = (e: React.PointerEvent<HTMLElement>) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const dx = (e.clientX - d.pointerX) / d.rectWidth;
+    const dy = (e.clientY - d.pointerY) / d.rectHeight;
+    const o = d.box;
+    const box =
+      d.mode === 'move'
+        ? { ...o, x: o.x + dx, y: o.y + dy }
+        : d.mode === 'resize'
+          ? { ...o, w: Math.max(0.02, o.w + dx), h: Math.max(0.02, o.h + dy) }
+          : d.mode === 'tip'
+            ? { ...o, w: o.w + dx, h: o.h + dy }
+            : { x: o.x + dx, y: o.y + dy, w: o.w - dx, h: o.h - dy };
+    useTimelineStore.getState().updateShape(shape.id, { box });
+  };
+  const end = (e: React.PointerEvent<HTMLElement>) => {
+    if (!dragRef.current) return;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    dragRef.current = null;
+  };
+
+  // Handle positions inside the bounds element, in preview pixels.
+  const at = (fx: number, fy: number) => ({
+    left: (fx * frameW - b.x) * scale,
+    top: (fy * frameH - b.y) * scale,
+  });
+  const { box } = shape;
+  const handles: { mode: ShapeDragMode; pos: { left: number; top: number } }[] =
+    !selected
+      ? []
+      : shape.kind === 'arrow'
+        ? [
+            { mode: 'tail', pos: at(box.x, box.y) },
+            { mode: 'tip', pos: at(box.x + box.w, box.y + box.h) },
+          ]
+        : [{ mode: 'resize', pos: at(box.x + box.w, box.y + box.h) }];
+
+  return (
+    <div
+      data-shape-overlay
+      onPointerDown={(e) => begin(e, 'move')}
+      onPointerMove={move}
+      onPointerUp={end}
+      onPointerCancel={end}
+      className={`pointer-events-auto absolute cursor-move ${
+        selected ? 'outline outline-1 outline-offset-0 outline-accent/70' : ''
+      }`}
+      style={{
+        left: b.x * scale,
+        top: b.y * scale,
+        width: b.width * scale,
+        height: b.height * scale,
+      }}
+      title={SHAPE_LABELS[shape.kind]}
+    >
+      <canvas ref={canvasRef} className="pointer-events-none h-full w-full" />
+      {handles.map((h) => (
+        <div
+          key={h.mode}
+          data-shape-handle={h.mode}
+          onPointerDown={(e) => begin(e, h.mode)}
+          onPointerMove={move}
+          onPointerUp={end}
+          onPointerCancel={end}
+          className="absolute size-3 -translate-x-1/2 -translate-y-1/2 cursor-crosshair rounded-full border-2 border-white bg-accent shadow"
+          style={h.pos}
+        />
+      ))}
+    </div>
+  );
+}
+
 function activeOverlays(
   project: VideoProject,
   playhead: number,
-): TextOverlay[] {
+): AnyOverlay[] {
   return project.overlays.filter(
     (o) => playhead >= o.startOffset && playhead < o.startOffset + o.duration,
   );
