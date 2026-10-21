@@ -282,6 +282,7 @@ A new overlay appears at the playhead with default text **“Sample text”**, w
 - Size
 - Color
 - Duration (how long it stays on screen)
+- Fade in / fade out
 
 **Move text:** Drag the overlay in the preview window.
 
@@ -319,6 +320,9 @@ Add one with **Edit → Add Callout / Add Arrow / Add Rectangle / Add Ellipse**,
 - Corner radius (rectangle and callout).
 - For a callout: its text, text color and size. Text wraps to fit the box, and you can type line breaks.
 - When it starts and how long it lasts.
+- **Fade in / fade out.** New annotations and text fade in and out over 0.3 s by default. Set either to **None** for a hard cut.
+
+Fades show in the preview and in the export, and appear as shaded ramps at the ends of the bar in the overlay lane. Captions don't fade, so quick subtitles stay crisp. If you trim an overlay shorter than its fades, they shrink to fit.
 
 Annotations are drawn the same way in the preview and in the export, so what you see is what you get. Defaults scale with the project's height, so lines and text look the same size in 720p and 4K.
 

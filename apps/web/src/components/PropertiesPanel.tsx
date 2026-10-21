@@ -11,7 +11,11 @@ import {
 } from 'lucide-react';
 import { useMemo } from 'react';
 import { formatTime } from '../lib/formatTime';
-import { isTextOverlay, SHAPE_LABELS } from '../lib/shapes';
+import {
+  effectiveOverlayFades,
+  isTextOverlay,
+  SHAPE_LABELS,
+} from '../lib/shapes';
 import {
   baseTrackClips,
   DEFAULT_TRANSITION_DURATION,
@@ -24,6 +28,7 @@ import { useLayoutStore } from '../store/useLayoutStore';
 import { useTimelineStore } from '../store/useTimelineStore';
 import type {
   AnyClip,
+  AnyOverlay,
   AudioClip,
   ClipId,
   ShapeOverlay,
@@ -961,6 +966,10 @@ function OverlayProperties({ overlay }: { overlay: TextOverlay }) {
           format={(v) => formatTime(v, false)}
           onChange={(v) => updateOverlay(overlay.id, { duration: v })}
         />
+        <OverlayFadeControls
+          overlay={overlay}
+          onChange={(patch) => updateOverlay(overlay.id, patch)}
+        />
       </div>
     </PanelShell>
   );
@@ -1104,8 +1113,45 @@ function ShapeProperties({ shape }: { shape: ShapeOverlay }) {
           format={(v) => formatTime(v, false)}
           onChange={(v) => updateShape(shape.id, { duration: v })}
         />
+        <OverlayFadeControls
+          overlay={shape}
+          onChange={(patch) => updateShape(shape.id, patch)}
+        />
       </div>
     </PanelShell>
+  );
+}
+
+/** Fade in / out for any overlay; each capped by what the other leaves. */
+function OverlayFadeControls({
+  overlay,
+  onChange,
+}: {
+  overlay: AnyOverlay;
+  onChange: (patch: { fadeIn?: number; fadeOut?: number }) => void;
+}) {
+  const { fadeIn, fadeOut } = effectiveOverlayFades(overlay);
+  return (
+    <>
+      <SliderRow
+        label="Fade in"
+        value={fadeIn}
+        min={0}
+        max={Math.max(0.01, overlay.duration - fadeOut)}
+        step={0.05}
+        format={(v) => (v === 0 ? 'None' : `${v.toFixed(2)}s`)}
+        onChange={(v) => onChange({ fadeIn: v })}
+      />
+      <SliderRow
+        label="Fade out"
+        value={fadeOut}
+        min={0}
+        max={Math.max(0.01, overlay.duration - fadeIn)}
+        step={0.05}
+        format={(v) => (v === 0 ? 'None' : `${v.toFixed(2)}s`)}
+        onChange={(v) => onChange({ fadeOut: v })}
+      />
+    </>
   );
 }
 

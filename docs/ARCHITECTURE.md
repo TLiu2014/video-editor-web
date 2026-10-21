@@ -221,6 +221,9 @@ Annotations are `ShapeOverlay`s in `project.overlays`: callout, arrow, rectangle
 - **One renderer:** `lib/shapes.ts` `drawShape` draws the preview canvas and the export PNG, so the two match. `shapePixelBounds` gives the exact rectangle that's rasterized and where `overlay` places it.
 - **Editing:** drag to move in the preview; resize from a corner handle, or from tail and tip handles on arrows.
 - **Overlay lane** (`OverlayLane`): every overlay, text or shape, appears in a lane under the ruler. Overlapping items stack into rows. Bars move and trim with the same snapping as clips.
+- **Fades:** every overlay has optional `fadeIn` / `fadeOut`, 0.3 s by default for new text and shapes. `effectiveOverlayFades` clamps them to the current length.
+  - In the preview, the shared `fadeEnvelope` sets opacity.
+  - In the export, a fading overlay's single PNG frame is repeated in memory with the `loop` filter (no per-frame decode), timestamped onto the timeline from its start, and alpha-faded. Hard-cut overlays stay a single frame.
 - Because shapes live in `overlays`, In/Out range edits, snapping, undo and serialization all handle them with no special cases. `kind` is absent on older text overlays, which `isTextOverlay` treats as text.
 
 PiP layers on V2+ with a transform can be dragged to move them in the preview, and resized from a corner handle while selected (`PreviewOverlayLayer`). Full-frame layers stay click-through.
@@ -273,7 +276,8 @@ Which established editor each behavior follows. "Own" means a choice made for th
 | Command palette (⌘K) | VS Code / Linear-style palettes | Not from a video editor. |
 | Right-click clip menu | Universal | |
 | Undo history (50 steps, drags merged) | Universal | |
-| Annotations: callout, arrow, rectangle, ellipse | Camtasia *Annotations* | A much smaller set: no sketch-motion, blur or spotlight shapes, no styles library, and no built-in fade in/out. Added from the Edit menu or palette rather than dragged from a tab. |
+| Annotations: callout, arrow, rectangle, ellipse | Camtasia *Annotations* | A much smaller set: no sketch-motion, blur or spotlight shapes, and no styles library. Added from the Edit menu or palette rather than dragged from a tab. |
+| Overlay fade in/out (0.3 s default) | Camtasia's fade behavior for annotations | Set per overlay in Properties; captions default to none. |
 | Overlay lane | Own; similar to Camtasia, where annotations sit on tracks | Here every overlay shares one auto-stacking lane above the video tracks. |
 
 ---
@@ -282,7 +286,7 @@ Which established editor each behavior follows. "Own" means a choice made for th
 
 - Transitions only on V1, and only the six types above; the preview shows the other clip as a still frame rather than playing it.
 - No keyframes or animation.
-- Annotations have no fade in/out or animation, and there are no blur, spotlight or sketch-motion shapes. There are no cursor or zoom-and-pan effects. Animated GIFs import as their first frame.
+- Annotations and text fade, but have no other animation (no motion or scale-in), and there are no blur, spotlight or sketch-motion shapes. There are no cursor or zoom-and-pan effects. Animated GIFs import as their first frame.
 - Export is single-threaded (see section 1).
 - No JKL shuttle, no track lock, no track height control, no slip or slide tools.
 - Text overlays: no font family, weight, background or alignment; they aren't on a track.
@@ -299,4 +303,4 @@ Which established editor each behavior follows. "Own" means a choice made for th
 - `lib/shapes.test.ts` covers shape bounds (including arrows pointing up and left), default scaling, labels, and overlay-lane row packing.
 - Browser smoke test: `apps/web/e2e/smoke.mjs` (`pnpm e2e` against a running dev server). It drives headless Chrome through import, resizing, reorder, cross-track drag, the range shortcuts, undo, split/join/delete, PiP drag and resize, `.srt` import and the context menu.
 - Vitest (`apps/web`, `pnpm test`) covers the pure editing rules (`lib/timelineOps.test.ts`), the load path and legacy migration (`serialization/project.test.ts`), and store actions (`store/useTimelineStore.test.ts`).
-- `lib/filterGraph.ffmpeg.test.ts` runs real export plans through native ffmpeg (`RUN_FFMPEG=1 pnpm test`). It checks still images, transparent PNG overlays, V2 alpha fades, dissolve length and blending, held edge frames, wipe direction, and fades going through black. The smoke test also exports through ffmpeg.wasm in the browser and checks the MP4 with ffprobe.
+- `lib/filterGraph.ffmpeg.test.ts` runs real export plans through native ffmpeg (`RUN_FFMPEG=1 pnpm test`). It checks still images, transparent PNG overlays, V2 alpha fades, overlay fade timing and hard cuts, dissolve length and blending, held edge frames, wipe direction, and fades going through black. The smoke test also exports through ffmpeg.wasm in the browser and checks the MP4 with ffprobe.

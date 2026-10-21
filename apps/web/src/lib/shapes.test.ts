@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { packOverlayRows } from '../components/timeline/OverlayLane';
 import type { ShapeOverlay, TextOverlay } from '../types/timeline';
+import { fadeEnvelope } from './fadeEnvelope';
 import {
   createShapeOverlay,
+  effectiveOverlayFades,
   isShapeOverlay,
   isTextOverlay,
   overlayLabel,
@@ -59,5 +61,23 @@ describe('overlay lane packing', () => {
   });
   it('always has one row', () => {
     expect(packOverlayRows([]).rows).toBe(1);
+  });
+});
+
+describe('overlay fades', () => {
+  it('new annotations fade by default; legacy text has none', () => {
+    expect(createShapeOverlay('arrow', 0, 1080)).toMatchObject({ fadeIn: 0.3, fadeOut: 0.3 });
+    expect(effectiveOverlayFades(text('t', 0, 2))).toEqual({ fadeIn: 0, fadeOut: 0 });
+  });
+  it('clamps stored fades to what fits the current length', () => {
+    const o = { ...text('t', 0, 1), fadeIn: 0.8, fadeOut: 0.8 };
+    expect(effectiveOverlayFades(o)).toEqual({ fadeIn: 0.8, fadeOut: expect.closeTo(0.2, 6) });
+  });
+  it('envelope ramps across the fade windows', () => {
+    const o = { ...text('t', 1, 2), fadeIn: 0.5, fadeOut: 0.5 };
+    const f = { ...o, ...effectiveOverlayFades(o) };
+    expect(fadeEnvelope(f, 1.25)).toBeCloseTo(0.5);
+    expect(fadeEnvelope(f, 2)).toBe(1);
+    expect(fadeEnvelope(f, 2.75)).toBeCloseTo(0.5);
   });
 });

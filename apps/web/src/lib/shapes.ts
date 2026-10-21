@@ -41,6 +41,19 @@ export function overlayLabel(o: AnyOverlay): string {
 
 const DEFAULT_COLOR = '#ef4444';
 
+/** Fade new text and annotations in and out briefly, like Camtasia. */
+export const DEFAULT_OVERLAY_FADE = 0.3;
+
+/**
+ * Fades that actually fit the overlay's current length (trimming an
+ * overlay shorter than its stored fades shouldn't make them overlap).
+ */
+export function effectiveOverlayFades(o: AnyOverlay): { fadeIn: number; fadeOut: number } {
+  const fadeIn = Math.max(0, Math.min(o.fadeIn ?? 0, o.duration));
+  const fadeOut = Math.max(0, Math.min(o.fadeOut ?? 0, o.duration - fadeIn));
+  return { fadeIn, fadeOut };
+}
+
 /** A new shape of `kind`, centered-ish in the frame, 3 s long. */
 export function createShapeOverlay(
   kind: ShapeKind,
@@ -70,6 +83,8 @@ export function createShapeOverlay(
     kind,
     startOffset,
     duration: 3,
+    fadeIn: DEFAULT_OVERLAY_FADE,
+    fadeOut: DEFAULT_OVERLAY_FADE,
     box,
     ...(kind === 'callout' ? { text: 'Callout text' } : {}),
     style: kind === 'callout' ? { ...style, strokeWidth: 0 } : style,

@@ -8,6 +8,7 @@ import { triggerMediaPicker } from '../lib/filePickers';
 import { findActiveVideoClip } from '../lib/projectMetrics';
 import {
   drawShape,
+  effectiveOverlayFades,
   isTextOverlay,
   SHAPE_LABELS,
   shapePixelBounds,
@@ -479,11 +480,13 @@ function PreviewOverlays() {
             overlay={overlay}
             containerRef={containerRef}
             scale={scale}
+            opacity={overlayOpacity(overlay, playhead)}
           />
         ) : (
           <ShapeView
             key={overlay.id}
             shape={overlay}
+            opacity={overlayOpacity(overlay, playhead)}
             containerRef={containerRef}
             scale={scale}
             frameW={project.resolution.width}
@@ -509,10 +512,12 @@ function DraggableOverlay({
   overlay,
   containerRef,
   scale,
+  opacity,
 }: {
   overlay: TextOverlay;
   containerRef: React.RefObject<HTMLDivElement | null>;
   scale: number;
+  opacity: number;
 }) {
   const selectedOverlayId = useTimelineStore((s) => s.selectedOverlayId);
   const selectOverlay = useTimelineStore((s) => s.selectOverlay);
@@ -578,6 +583,7 @@ function DraggableOverlay({
       style={{
         left: `${overlay.style.position.x * 100}%`,
         top: `${overlay.style.position.y * 100}%`,
+        opacity,
         color: overlay.style.color,
         fontSize: `${overlay.style.size * scale}px`,
         lineHeight: 1.1,
@@ -601,12 +607,14 @@ type ShapeDragMode = 'move' | 'resize' | 'tail' | 'tip';
  */
 function ShapeView({
   shape,
+  opacity,
   containerRef,
   scale,
   frameW,
   frameH,
 }: {
   shape: ShapeOverlay;
+  opacity: number;
   containerRef: React.RefObject<HTMLDivElement | null>;
   scale: number;
   frameW: number;
@@ -706,6 +714,7 @@ function ShapeView({
         top: b.y * scale,
         width: b.width * scale,
         height: b.height * scale,
+        opacity,
       }}
       title={SHAPE_LABELS[shape.kind]}
     >
@@ -723,6 +732,14 @@ function ShapeView({
         />
       ))}
     </div>
+  );
+}
+
+/** Fade envelope at the playhead, matching the export's alpha fades. */
+function overlayOpacity(overlay: AnyOverlay, playhead: number): number {
+  return fadeEnvelope(
+    { ...overlay, ...effectiveOverlayFades(overlay) },
+    playhead,
   );
 }
 

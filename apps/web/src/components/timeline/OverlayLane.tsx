@@ -9,7 +9,11 @@ import {
 import { useRef, useState } from 'react';
 import { formatTime } from '../../lib/formatTime';
 import { computeProjectDuration } from '../../lib/projectMetrics';
-import { isTextOverlay, overlayLabel } from '../../lib/shapes';
+import {
+  effectiveOverlayFades,
+  isTextOverlay,
+  overlayLabel,
+} from '../../lib/shapes';
 import {
   chooseMajorInterval,
   collectSnapTargets,
@@ -174,6 +178,7 @@ function OverlayBar({ overlay, top }: { overlay: AnyOverlay; top: number }) {
           ? CircleIcon
           : SquareIcon;
   const label = overlayLabel(overlay);
+  const fades = effectiveOverlayFades(overlay);
 
   return (
     <div
@@ -200,8 +205,21 @@ function OverlayBar({ overlay, top }: { overlay: AnyOverlay; top: number }) {
       }}
       title={`${label} · ${formatTime(dur, false)} @ ${formatTime(start, false)}`}
     >
-      <Icon className="size-3 shrink-0" />
-      <span className="truncate">{label}</span>
+      {/* Fade ramps, like the clip fades on tracks. */}
+      {fades.fadeIn > 0 ? (
+        <div
+          className="pointer-events-none absolute inset-y-0 left-0 bg-gradient-to-r from-black/45 to-transparent"
+          style={{ width: Math.min(dur, fades.fadeIn) * pps }}
+        />
+      ) : null}
+      {fades.fadeOut > 0 ? (
+        <div
+          className="pointer-events-none absolute inset-y-0 right-0 bg-gradient-to-l from-black/45 to-transparent"
+          style={{ width: Math.min(dur, fades.fadeOut) * pps }}
+        />
+      ) : null}
+      <Icon className="relative size-3 shrink-0" />
+      <span className="relative truncate">{label}</span>
       {(['start', 'end'] as const).map((side) => (
         <div
           key={side}

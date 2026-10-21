@@ -198,6 +198,9 @@ export interface TextOverlay {
   text: string;
   startOffset: number;
   duration: number;
+  /** Seconds to fade in / out (opacity). Absent = 0 (hard cut). */
+  fadeIn?: number;
+  fadeOut?: number;
   style: TextOverlayStyle;
 }
 
@@ -225,6 +228,9 @@ export interface ShapeOverlay {
   kind: ShapeKind;
   startOffset: number;
   duration: number;
+  /** Seconds to fade in / out (opacity). Absent = 0 (hard cut). */
+  fadeIn?: number;
+  fadeOut?: number;
   /**
    * Geometry as 0–1 fractions of the project frame. For box shapes
    * (x, y) is the top-left and (w, h) the size, both positive. For an

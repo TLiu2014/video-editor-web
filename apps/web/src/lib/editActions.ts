@@ -2,7 +2,7 @@ import { useTimelineStore } from '../store/useTimelineStore';
 import { useTimelineViewStore } from '../store/useTimelineViewStore';
 import type { ShapeKind, TrackId } from '../types/timeline';
 import { newId } from './ids';
-import { createShapeOverlay } from './shapes';
+import { createShapeOverlay, DEFAULT_OVERLAY_FADE } from './shapes';
 import { checkJoin } from './timelineOps';
 import {
   baseTrackClips,
@@ -173,6 +173,8 @@ export function addTextAtPlayhead(): void {
     text: 'Sample text',
     startOffset: s.playheadPosition,
     duration: 3,
+    fadeIn: DEFAULT_OVERLAY_FADE,
+    fadeOut: DEFAULT_OVERLAY_FADE,
     style: {
       position: { x: 0.1, y: 0.85 },
       color: '#ffffff',

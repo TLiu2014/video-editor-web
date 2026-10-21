@@ -1,6 +1,10 @@
 import { clipRate, ffmpegAtempoChain } from './clipRate';
 import { ffmpegEffectFilters } from './effects';
-import { isTextOverlay, shapePixelBounds } from './shapes';
+import {
+  effectiveOverlayFades,
+  isTextOverlay,
+  shapePixelBounds,
+} from './shapes';
 import {
   effectiveTransitionIn,
   MAX_TRANSITION_DURATION,
@@ -585,6 +589,34 @@ export function buildExportPlan(
     const nextLabel = i === overlays.length - 1 ? 'outv' : `vov${i}`;
     const startSec = overlay.startOffset.toFixed(3);
     const endSec = (overlay.startOffset + overlay.duration).toFixed(3);
+    // A fading overlay needs real frames across its window: repeat
+    // the single PNG frame in memory (`loop` — no per-frame decode),
+    // stamp the frames onto the timeline from its start, and fade the
+    // alpha channel. Hard-cut overlays stay a single frame that the
+    // overlay filter repeats.
+    const { fadeIn, fadeOut } = effectiveOverlayFades(overlay);
+    let source = `${inputIdx}:v`;
+    if (fadeIn > 0 || fadeOut > 0) {
+      const start = overlay.startOffset;
+      const end = start + overlay.duration;
+      const frames = Math.max(1, Math.round(overlay.duration * fps));
+      const fades: string[] = [];
+      if (fadeIn > 0) {
+        fades.push(`fade=t=in:st=${start.toFixed(3)}:d=${fadeIn.toFixed(3)}:alpha=1`);
+      }
+      if (fadeOut > 0) {
+        fades.push(
+          `fade=t=out:st=${(end - fadeOut).toFixed(3)}:d=${fadeOut.toFixed(3)}:alpha=1`,
+        );
+      }
+      source = `ovf${i}`;
+      filterParts.push(
+        `[${inputIdx}:v]format=rgba,loop=loop=${frames - 1}:size=1:start=0,` +
+          `setpts=N/(${fps}*TB)+${start.toFixed(3)}/TB,` +
+          fades.join(',') +
+          `[${source}]`,
+      );
+    }
     // Must match where the rasterizer puts the PNG's top-left.
     const origin = isTextOverlay(overlay)
       ? {
@@ -593,7 +625,7 @@ export function buildExportPlan(
         }
       : shapePixelBounds(overlay, width, height);
     filterParts.push(
-      `[${videoOutLabel}][${inputIdx}:v]overlay=` +
+      `[${videoOutLabel}][${source}]overlay=` +
         `x=${origin.x}:` +
         `y=${origin.y}:` +
         `enable='between(t,${startSec},${endSec})'[${nextLabel}]`,

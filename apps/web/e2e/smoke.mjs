@@ -235,6 +235,11 @@ await page.mouse.move(barBox.x + barBox.width / 2 + 80, barBox.y + barBox.height
 const movedBar = await (await page.$('[data-overlay-bar]')).boundingBox();
 ok('dragging the lane bar retimes the overlay by 1s', Math.abs(movedBar.x - barBox.x - 80) < 3, `${barBox.x} -> ${movedBar.x}`);
 ok('callout now spans 2s–5s', /00:03 @ 00:02/.test(await page.$eval('[data-overlay-bar]', (e) => e.title)));
+// Default 0.3s fade-in: just after the start the callout is partly transparent.
+await page.mouse.click(surfNow.x + 2.1 * 80, surfNow.y + 8); await wait(300);
+const fadeOpacity = parseFloat(await page.$eval('[data-shape-overlay]', (e) => e.style.opacity));
+ok('callout fades in in the preview', fadeOpacity > 0.1 && fadeOpacity < 0.6, String(fadeOpacity));
+await page.mouse.click(surfNow.x + 1 * 80, surfNow.y + 8); await wait(300);
 await palette('Add Arrow');
 const tip = await page.$('[data-shape-handle="tip"]');
 ok('arrow shows tip handle when selected', !!tip);

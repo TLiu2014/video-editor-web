@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { AnyClip, VideoClip, VideoProject } from '../types/timeline';
 import { buildExportPlan } from './filterGraph';
+import { createShapeOverlay, isTextOverlay, shapePixelBounds } from './shapes';
 import { STILL_MAX_DURATION } from './stills';
 
 const run = process.env.RUN_FFMPEG === '1';
@@ -52,6 +53,14 @@ function execPlan(p: VideoProject, out: string): number {
     // Inputs were built from files in `dir`; write them under the
     // plan's virtual names, as useFFmpeg does with fetchFile.
     writeFileSync(join(dir, input.name), readFileSync(join(dir, input.file.name)));
+  }
+  // The browser rasterizes overlays; here a solid white PNG of the
+  // right size stands in (timing and alpha are what's under test).
+  for (const ov of plan.overlayInputs) {
+    const b = isTextOverlay(ov.overlay)
+      ? { width: 40, height: 40 }
+      : shapePixelBounds(ov.overlay, p.resolution.width, p.resolution.height);
+    ff(['-f', 'lavfi', '-i', `color=c=white:s=${b.width}x${b.height}`, '-frames:v', '1', ov.name]);
   }
   const args = plan.args.map((a) => (a === plan.outputFile ? out : a));
   execFileSync('ffmpeg', ['-loglevel', 'error', ...args], { cwd: dir });
@@ -196,5 +205,46 @@ describe.skipIf(!run)('export plans through native ffmpeg', () => {
     execPlan(p, 'fades.mp4');
     const px = pixel('fades.mp4', 2.02, 160, 90);
     expect(Math.max(...px)).toBeLessThan(40);
+  });
+
+  it('fades an overlay in and out on its own timing', () => {
+    const blue = fileFrom('blue.mp4', 'video/mp4');
+    const p = project([videoClip('a', blue, 0, 3)]);
+    p.overlays = [{
+      ...createShapeOverlay('rect', 0.5, 180),
+      box: { x: 0.25, y: 0.25, w: 0.5, h: 0.5 },
+      duration: 2,
+      fadeIn: 1,
+      fadeOut: 0.5,
+    }];
+    execPlan(p, 'overlay-fade.mp4');
+    const at = (t: number) => pixel('overlay-fade.mp4', t, 160, 90);
+    // Before it starts: base only.
+    expect(at(0.3)[0]).toBeLessThan(40);
+    // Halfway through the fade-in (t = 1.0): roughly half white.
+    const mid = at(1.0);
+    expect(mid[0]).toBeGreaterThan(70);
+    expect(mid[0]).toBeLessThan(190);
+    // Fully in.
+    expect(Math.min(...at(1.8))).toBeGreaterThan(220);
+    // After it ends (2.5): base again.
+    expect(at(2.7)[0]).toBeLessThan(40);
+  });
+
+  it('keeps hard-cut overlays (no fades) on the single-frame path', () => {
+    const blue = fileFrom('blue.mp4', 'video/mp4');
+    const p = project([videoClip('a', blue, 0, 3)]);
+    p.overlays = [{
+      ...createShapeOverlay('rect', 0.5, 180),
+      box: { x: 0.25, y: 0.25, w: 0.5, h: 0.5 },
+      duration: 1.5,
+      fadeIn: 0,
+      fadeOut: 0,
+    }];
+    expect(buildExportPlan(p).args.join(' ')).not.toContain('loop=');
+    execPlan(p, 'overlay-cut.mp4');
+    const at = (t: number) => pixel('overlay-cut.mp4', t, 160, 90);
+    expect(Math.min(...at(0.6))).toBeGreaterThan(220);
+    expect(at(2.2)[0]).toBeLessThan(40);
   });
 });

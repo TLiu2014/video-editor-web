@@ -24,9 +24,8 @@ import {
   registerArchiveInput,
   registerMediaInput,
 } from '../lib/filePickers';
-import { newId } from '../lib/ids';
 import { isMac } from '../lib/platform';
-import { addShapeAtPlayhead } from '../lib/editActions';
+import { addShapeAtPlayhead, addTextAtPlayhead } from '../lib/editActions';
 import { importFilesToLibrary } from '../lib/importMedia';
 import { trackEnd } from '../lib/projectMetrics';
 import {
@@ -60,7 +59,6 @@ const ANNOTATION_ITEMS: { kind: ShapeKind; label: string; icon: React.ReactNode 
 export function Toolbar() {
   const project = useTimelineStore((s) => s.currentProject);
   const createProject = useTimelineStore((s) => s.createProject);
-  const addOverlay = useTimelineStore((s) => s.addOverlay);
   const removeClips = useTimelineStore((s) => s.removeClips);
   const removeOverlay = useTimelineStore((s) => s.removeOverlay);
 
@@ -185,21 +183,7 @@ export function Toolbar() {
     }
   };
 
-  const handleAddText = () => {
-    if (!project) return;
-    const playhead = useTimelineStore.getState().playheadPosition;
-    addOverlay({
-      id: newId(),
-      text: 'Sample text',
-      startOffset: playhead,
-      duration: 3,
-      style: {
-        position: { x: 0.1, y: 0.85 },
-        color: '#ffffff',
-        size: 64,
-      },
-    });
-  };
+  const handleAddText = addTextAtPlayhead;
 
   const handleDelete = () => {
     const ids = useTimelineStore.getState().selectedClipIds;
