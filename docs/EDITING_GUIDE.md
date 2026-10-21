@@ -173,7 +173,7 @@ You can remove embedded audio from video clips in the exported file:
 - **Track mute:** Click **M** on **V1** to mute all audio from that video track in the export.
 - **Per clip:** Select a video clip. In **Properties**, turn off **Has audio** (labeled “Mixed into export” / “Treated as silent”).
 
-**Preview note:** The preview may still play embedded video audio even when mute is set. The exported MP4 reflects your mute settings.
+The preview and the export follow the same rules. Mute, solo and **Has audio** all silence the clip in both, and the clip's audio fades with it.
 
 ### Add secondary audio
 
@@ -429,7 +429,7 @@ Additional commands (undo, ripple delete, etc.) are available from the command p
 | Play, pause, and seek | Yes |
 | Trim, split, join, move, close gaps | Yes |
 | Media library (import, add to timeline, rename, remove unused) | Yes |
-| Mute original audio, add secondary audio, volume control | Yes (mute applies fully on export) |
+| Mute original audio, add secondary audio, volume control | Yes |
 | Speed, fades, clip color, color effects | Yes |
 | Transitions (dissolve, fade through black, wipes, slides) | Yes, on V1 |
 | Still images (PNG, JPEG, WebP; others converted) | Yes |

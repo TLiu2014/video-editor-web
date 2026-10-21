@@ -4,6 +4,7 @@ import { routeMediaElement } from '../lib/audioGraph';
 import { clipRate } from '../lib/clipRate';
 import { clipCssFilter } from '../lib/effects';
 import { fadeEnvelope } from '../lib/fadeEnvelope';
+import { isTrackAudible } from '../lib/trackAudibility';
 import { triggerMediaPicker } from '../lib/filePickers';
 import { findActiveVideoClip } from '../lib/projectMetrics';
 import {
@@ -135,6 +136,20 @@ export function Preview() {
       } else {
         mainImg.style.opacity = '0';
         updateActiveVideo(main, mainSourceRef, active, state);
+        // Same audibility rules as the export: only V1 clips that have
+        // audio, on an audible track (mute / solo), are heard, and the
+        // clip's fades ramp the sound like `afade`.
+        const host = project.tracks.find((t) =>
+          t.clips.some((c) => c.id === active.id),
+        );
+        const base = project.tracks.find((t) => t.type === 'video');
+        const audible =
+          !!host &&
+          host === base &&
+          active.hasAudio &&
+          isTrackAudible(host, project.tracks);
+        main.muted = !audible;
+        main.volume = audible ? fadeEnvelope(active, state.playheadPosition) : 0;
         front = main;
       }
       front.style.filter = clipCssFilter(active);

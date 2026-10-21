@@ -193,6 +193,19 @@ for (const name of ['clipA', 'clipB', 'card']) {
 }
 l = await layout();
 ok('A, B, still appended on V1', JSON.stringify(l[0].clips) === JSON.stringify(['clipA.mp4@0.00', 'clipB.mp4@6.00', 'card.png@10.00']), JSON.stringify(l[0].clips));
+// Preview audio follows track mute (it used to always play).
+{
+  const surf0 = await (await page.$('[data-timeline-surface]')).boundingBox();
+  await page.mouse.click(surf0.x + 3 * 80, surf0.y + 8); await wait(300);
+  const mainMuted = () => page.$eval('video.relative', (v) => v.muted);
+  const before = await mainMuted();
+  const v1 = (await page.$$('[data-track-id]'))[0];
+  await (await v1.$('button[title="Mute track"]')).click(); await wait(300);
+  const afterMute = await mainMuted();
+  await (await v1.$('button[title="Unmute track"]')).click(); await wait(300);
+  ok('preview mutes V1 audio when the track is muted', before === false && afterMute === true && (await mainMuted()) === false,
+    `${before} → ${afterMute}`);
+}
 // Add a transition at the A|B cut via the hover "+".
 const v1Row = (await page.$$('[data-track-id]'))[0];
 await v1Row.hover(); await wait();

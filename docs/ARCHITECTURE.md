@@ -126,7 +126,7 @@ VideoProject
   - Still clips render through an `<img>` next to each `<video>`; object URLs come from a shared cache (`lib/stills.ts`).
   - `PreviewOverlayLayer` renders text overlays and handles dragging them.
 - **`useAudioEngine`** plays audio-track clips through Web Audio (`MediaElementSource → Gain`), with volume, fades, mute and solo. `AudioMeter` reads an analyser node from the same graph.
-- Known gap: when a video clip's own audio is muted, the preview may still play it. The export always respects the mute.
+- The main `<video>`'s sound follows the export's rules: only V1 clips that have audio and sit on an audible track (mute and solo) are heard, and the clip's fades ramp its volume.
 
 ### 2.4 Export (`lib/filterGraph.ts`, `hooks/useFFmpeg.ts`)
 
@@ -290,7 +290,6 @@ Which established editor each behavior follows. "Own" means a choice made for th
 - Export is single-threaded (see section 1).
 - No JKL shuttle, no track lock, no track height control, no slip or slide tools.
 - Text overlays: no font family, weight, background or alignment; they aren't on a track.
-- Mute of a video clip's own audio isn't reflected in the preview.
 - Audio from clips on V2 and above is always muted (preview and export).
 - PiP has no on-canvas rotate handle and no snapping or guides.
 - The library doesn't detect duplicate imports or show file size, and has no folders (bins).
