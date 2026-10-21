@@ -1,5 +1,14 @@
 import clsx from 'clsx';
-import { BlendIcon, Music2Icon, PlusIcon, VideoIcon, XIcon } from 'lucide-react';
+import {
+  BlendIcon,
+  ChevronsUpDownIcon,
+  LockIcon,
+  LockOpenIcon,
+  Music2Icon,
+  PlusIcon,
+  VideoIcon,
+  XIcon,
+} from 'lucide-react';
 import { useState } from 'react';
 import {
   chooseMajorInterval,
@@ -22,7 +31,7 @@ import {
 } from '../../store/useTimelineViewStore';
 import type { TimelineTrack, VideoClip } from '../../types/timeline';
 import { Clip } from './Clip';
-import { SNAP_THRESHOLD_PX, TRACK_HEIGHT_AUDIO, TRACK_HEIGHT_VIDEO } from './constants';
+import { nextTrackHeight, SNAP_THRESHOLD_PX, trackHeightPx } from './constants';
 
 export function Track({
   track,
@@ -38,7 +47,10 @@ export function Track({
   width: number;
 }) {
   const isVideo = track.type === 'video';
-  const height = isVideo ? TRACK_HEIGHT_VIDEO : TRACK_HEIGHT_AUDIO;
+  const height = trackHeightPx(track);
+  const locked = !!track.locked;
+  const setTrackLocked = useTimelineStore((s) => s.setTrackLocked);
+  const setTrackHeight = useTimelineStore((s) => s.setTrackHeight);
   const removeTrack = useTimelineStore((s) => s.removeTrack);
   const setTrackMuted = useTimelineStore((s) => s.setTrackMuted);
   const setTrackSolo = useTimelineStore((s) => s.setTrackSolo);
@@ -70,8 +82,9 @@ export function Track({
       : null,
   );
   const acceptsDrag = (e: React.DragEvent) =>
-    e.dataTransfer.types.includes(MEDIA_DRAG_TYPE) ||
-    e.dataTransfer.types.includes('Files');
+    !locked &&
+    (e.dataTransfer.types.includes(MEDIA_DRAG_TYPE) ||
+      e.dataTransfer.types.includes('Files'));
   const onDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     if (!acceptsDrag(e)) return;
     e.preventDefault();
@@ -144,6 +157,20 @@ export function Track({
           onClick={() => setTrackSolo(track.id, !solo)}
           title={solo ? 'Unsolo track' : 'Solo track'}
         />
+        <TrackToggle
+          label={locked ? <LockIcon className="size-2.5" /> : <LockOpenIcon className="size-2.5" />}
+          active={locked}
+          activeClass="bg-slate-500 text-white"
+          onClick={() => setTrackLocked(track.id, !locked)}
+          title={locked ? 'Unlock track' : 'Lock track (no edits)'}
+        />
+        <TrackToggle
+          label={<ChevronsUpDownIcon className="size-2.5" />}
+          active={false}
+          activeClass=""
+          onClick={() => setTrackHeight(track.id, nextTrackHeight(track.height))}
+          title={`Track height: ${track.height ?? 'normal'} (click to change)`}
+        />
         {removable ? (
           <button
             type="button"
@@ -159,10 +186,19 @@ export function Track({
           </button>
         ) : null}
       </div>
-      {track.clips.map((clip) => (
-        <Clip key={clip.id} clip={clip} />
-      ))}
-      {isVideo && index === 1 ? <TransitionMarkers track={track} /> : null}
+      <div className={locked ? 'pointer-events-none contents' : 'contents'}>
+        {track.clips.map((clip) => (
+          <Clip key={clip.id} clip={clip} trackHeight={height} />
+        ))}
+      </div>
+      {locked ? (
+        <div
+          data-track-locked
+          className="pointer-events-none absolute inset-0 z-20 bg-[repeating-linear-gradient(135deg,transparent_0_6px,rgba(100,116,139,0.18)_6px_12px)]"
+          title="Track locked"
+        />
+      ) : null}
+      {isVideo && index === 1 && !locked ? <TransitionMarkers track={track} /> : null}
       {reorderAtPx !== null ? (
         <div
           className="pointer-events-none absolute inset-y-0 z-40 w-[3px] -translate-x-1/2 rounded bg-accent shadow-[0_0_6px] shadow-accent"
@@ -268,7 +304,7 @@ function TrackToggle({
   onClick,
   title,
 }: {
-  label: string;
+  label: React.ReactNode;
   active: boolean;
   activeClass: string;
   onClick: () => void;

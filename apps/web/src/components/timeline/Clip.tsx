@@ -63,7 +63,14 @@ interface DragState {
   movingIds: ReadonlySet<string>;
 }
 
-export function Clip({ clip }: { clip: AnyClip }) {
+export function Clip({
+  clip,
+  trackHeight,
+}: {
+  clip: AnyClip;
+  /** Row height of the track; thumbnails and waveforms fit inside it. */
+  trackHeight: number;
+}) {
   const pps = usePixelsPerSecond();
   const moveClip = useTimelineStore((s) => s.moveClip);
   const moveClips = useTimelineStore((s) => s.moveClips);
@@ -269,6 +276,12 @@ export function Clip({ clip }: { clip: AnyClip }) {
   };
 
   const isVideo = clip.kind === 'video';
+  // The clip box is inset 4px top and bottom (top-1 / bottom-1).
+  const innerHeight = Math.max(8, trackHeight - 8);
+  // A video clip's audio waveform only fits on normal / tall rows.
+  const waveHeight =
+    isVideo && clip.hasAudio && innerHeight >= 56 ? Math.round(innerHeight * 0.28) : 0;
+  const stripHeight = innerHeight - waveHeight;
   const baseLeftPx = clip.startOffset * pps;
   const baseWidthPx = Math.max(2, clip.duration * pps);
 
@@ -294,6 +307,7 @@ export function Clip({ clip }: { clip: AnyClip }) {
       onPointerMove={updateDrag}
       onPointerUp={commit}
       onPointerCancel={commit}
+      data-clip-id={clip.id}
       onContextMenu={openContextMenu}
       // The scroll container clears the selection on click; a click
       // that started on a clip must not reach it, or selecting a clip
@@ -332,16 +346,16 @@ export function Clip({ clip }: { clip: AnyClip }) {
       title={`${clip.name} · ${formatTime(clip.duration, false)}`}
     >
       {clip.kind === 'audio' ? (
-        <Waveform clip={clip} widthPx={widthPx} heightPx={48} />
+        <Waveform clip={clip} widthPx={widthPx} heightPx={innerHeight} />
       ) : (
         <>
-          <VideoThumbnailStrip clip={clip} widthPx={widthPx} heightPx={44} />
-          {clip.hasAudio ? (
+          <VideoThumbnailStrip clip={clip} widthPx={widthPx} heightPx={stripHeight} />
+          {waveHeight > 0 ? (
             <Waveform
               clip={clip}
               widthPx={widthPx}
-              heightPx={20}
-              topPx={44}
+              heightPx={waveHeight}
+              topPx={stripHeight}
             />
           ) : null}
         </>
@@ -350,9 +364,11 @@ export function Clip({ clip }: { clip: AnyClip }) {
         <div className="flex items-center gap-1.5 text-[13px] font-medium leading-tight">
           <span className="truncate">{clip.name}</span>
         </div>
-        <div className="font-mono text-[11px] leading-none text-white/80">
-          {formatTime(visibleDurationSec, false)}
-        </div>
+        {innerHeight >= 40 ? (
+          <div className="font-mono text-[11px] leading-none text-white/80">
+            {formatTime(visibleDurationSec, false)}
+          </div>
+        ) : null}
       </div>
 
       {clip.kind === 'video' && onBaseTrack && mode === null ? (

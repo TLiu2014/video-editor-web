@@ -77,6 +77,8 @@ Import PNG, JPEG or WebP images (logos, title cards, screenshots) the same way a
 
 - **M** — mute the track
 - **S** — solo the track (only that track’s audio plays)
+- **Padlock** — lock the track. Its clips can't be selected or edited, nothing can be dropped or pasted onto it, and range edits and Close Gaps leave it alone. A locked track is striped; click the padlock again to unlock it.
+- **↕** — change the track's height: normal, tall or compact. Thumbnails and waveforms resize to fit, and the height is saved with the project.
 
 **Note:** The editor also supports adding extra video or audio tracks (for example, picture-in-picture). For a simple edit, use V1 and A1 only.
 

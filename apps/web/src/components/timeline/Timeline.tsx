@@ -10,8 +10,7 @@ import {
 import {
   MIN_TIMELINE_SECONDS,
   RULER_HEIGHT,
-  TRACK_HEIGHT_AUDIO,
-  TRACK_HEIGHT_VIDEO,
+  trackHeightPx,
 } from './constants';
 import { ClipContextMenu } from './ClipContextMenu';
 import { EditToolbar } from './EditToolbar';
@@ -64,8 +63,7 @@ export function Timeline() {
   const duration = Math.max(MIN_TIMELINE_SECONDS, projectDuration + 10);
   const width = duration * pps;
   const tracksHeight = project.tracks.reduce(
-    (acc, t) =>
-      acc + (t.type === 'video' ? TRACK_HEIGHT_VIDEO : TRACK_HEIGHT_AUDIO),
+    (acc, t) => acc + trackHeightPx(t),
     0,
   );
   const totalHeight = RULER_HEIGHT + overlayLaneHeight(project) + tracksHeight;

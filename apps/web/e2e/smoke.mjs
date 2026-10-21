@@ -51,7 +51,7 @@ for (const i of [0, 1]) {
   await (await row.$('button[title="Add to timeline at playhead"]')).click(); await wait();
 }
 const layout = () => page.$$eval('[data-track-id]', (rows) => rows.map((r) => ({
-  track: r.dataset.trackType, clips: [...r.querySelectorAll(':scope > div[title]')].map((c) => `${c.title.split(' ·')[0]}@${(parseFloat(c.style.left) / 80).toFixed(2)}`),
+  track: r.dataset.trackType, clips: [...r.querySelectorAll(':scope [data-clip-id]')].map((c) => `${c.title.split(' ·')[0]}@${(parseFloat(c.style.left) / 80).toFixed(2)}`),
 })));
 const ok = (name, cond, extra = '') => {
   if (!cond) failures += 1;
@@ -75,7 +75,7 @@ ok('timeline resize +100', Math.round(await tlH() - h0) === 100, `${h0} -> ${awa
 
 // --- reorder: drag A onto right half of B
 const clipEl = async (name) => {
-  for (const c of await page.$$('[data-track-id] > div[title]')) if ((await c.evaluate((e) => e.title)).startsWith(name)) return c;
+  for (const c of await page.$$('[data-track-id] [data-clip-id]')) if ((await c.evaluate((e) => e.title)).startsWith(name)) return c;
 };
 let a = await (await clipEl('clipA')).boundingBox();
 let b = await (await clipEl('clipB')).boundingBox();
@@ -117,7 +117,7 @@ ok('split makes 2', (await layout())[0].clips.length === 2);
 // ⌘A with 2+ clips used to crash the Properties panel (selector loop).
 await page.keyboard.down('Meta'); await page.keyboard.press('KeyA'); await page.keyboard.up('Meta'); await wait();
 ok('⌘A multi-select keeps the app alive', !!(await page.$('[data-timeline-surface]')));
-const pieces = await (await page.$$('[data-track-id]'))[0].$$(':scope > div[title]');
+const pieces = await (await page.$$('[data-track-id]'))[0].$$(':scope [data-clip-id]');
 const p0 = await pieces[0].boundingBox(); const p1 = await pieces[1].boundingBox();
 await page.mouse.click(p0.x + p0.width / 2, p0.y + 20); await wait();
 await page.keyboard.down('Shift'); await page.mouse.click(p1.x + p1.width / 2, p1.y + 20); await page.keyboard.up('Shift'); await wait();
@@ -125,7 +125,7 @@ await page.keyboard.down('Meta'); await page.keyboard.press('KeyJ'); await page.
 ok('⌘J joins back', (await layout())[0].clips.length === 1, JSON.stringify((await layout())[0].clips));
 // delete selected after split
 await page.keyboard.press('KeyS'); await wait();
-const after = await (await page.$$('[data-track-id]'))[0].$$(':scope > div[title]');
+const after = await (await page.$$('[data-track-id]'))[0].$$(':scope [data-clip-id]');
 const q = await after[1].boundingBox();
 await page.mouse.click(q.x + q.width / 2, q.y + 20); await wait();
 await page.keyboard.press('Backspace'); await wait();
@@ -171,7 +171,7 @@ ok('SRT import adds captions', await page.evaluate(() => document.body.innerText
 await page.keyboard.press('Escape'); await wait();
 
 // right-click menu
-const last = (await page.$$('[data-track-id] > div[title]'))[0];
+const last = (await page.$$('[data-track-id] [data-clip-id]'))[0];
 const lb = await last.boundingBox();
 await page.mouse.click(lb.x + lb.width / 2, lb.y + 20, { button: 'right' }); await wait();
 ok('context menu opens', !!(await page.$('[role=menu]')));
@@ -356,6 +356,25 @@ if (exported) {
   const before = px(1);
   ok('callout is burned into the export at its retimed span', Math.min(...during) > 215 && Math.min(...before) <= 215,
     `during ${during} before ${before}`);
+}
+
+// Track lock + height (after export so earlier steps are unaffected).
+{
+  await page.keyboard.press('Escape'); await wait(300);
+  const v1 = () => page.$$('[data-track-id]').then((r) => r[0]);
+  const clipsBefore = (await layout())[0].clips.length;
+  await (await (await v1()).$('button[title="Lock track (no edits)"]')).click(); await wait(300);
+  ok('locked track shows the locked overlay', !!(await (await v1()).$('[data-track-locked]')));
+  const first = await clipEl('clipA');
+  const fb = await first.boundingBox();
+  await page.mouse.click(fb.x + fb.width / 2, fb.y + fb.height / 2); await wait(200);
+  await page.keyboard.press('Backspace'); await wait(200);
+  ok('clips on a locked track cannot be selected or deleted', (await layout())[0].clips.length === clipsBefore);
+  await (await (await v1()).$('button[title="Unlock track"]')).click(); await wait(200);
+  const h0 = (await (await v1()).boundingBox()).height;
+  await (await (await v1()).$('button[title^="Track height"]')).click(); await wait(200);
+  const h1 = (await (await v1()).boundingBox()).height;
+  ok('track height button makes the row taller', h1 > h0 + 30, `${h0} → ${h1}`);
 }
 
 await browser.close();

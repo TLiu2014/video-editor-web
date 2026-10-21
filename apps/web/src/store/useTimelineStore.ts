@@ -18,7 +18,9 @@ import {
   insertAssetClip,
   joinClips as joinClipsOp,
   moveClipsBy,
+  isClipLocked,
   placeClip,
+  withoutLocked,
   reorderClip as reorderClipOp,
   type ReorderTarget,
   removeClips as removeClipsOp,
@@ -37,6 +39,7 @@ import type {
   OverlayId,
   ShapeOverlay,
   TextOverlay,
+  TrackHeight,
   TrackId,
   TransitionKind,
   VideoClip,
@@ -131,6 +134,10 @@ export interface TimelineActions {
   setTrackMuted: (trackId: TrackId, muted: boolean) => void;
   /** Toggle (or set) the solo flag on a track. */
   setTrackSolo: (trackId: TrackId, solo: boolean) => void;
+  /** Lock / unlock a track; locking drops its clips from the selection. */
+  setTrackLocked: (trackId: TrackId, locked: boolean) => void;
+  /** Set a track's row height preset. */
+  setTrackHeight: (trackId: TrackId, height: TrackHeight) => void;
 
   /** Append imported assets to the media library (no timeline change). */
   addMediaAssets: (assets: MediaAsset[]) => void;
@@ -603,6 +610,41 @@ export const useTimelineStore = create<TimelineStore>()(
         };
       }),
 
+    setTrackLocked: (trackId, locked) =>
+      set((state) => {
+        if (!state.currentProject) return state;
+        const project = {
+          ...state.currentProject,
+          tracks: state.currentProject.tracks.map((t) =>
+            t.id !== trackId ? t : { ...t, locked: locked || undefined },
+          ),
+        };
+        const keep = withoutLocked(project, state.selectedClipIds);
+        return {
+          currentProject: project,
+          selectedClipIds: keep,
+          selectedClipId:
+            state.selectedClipId && keep.includes(state.selectedClipId)
+              ? state.selectedClipId
+              : (keep[keep.length - 1] ?? null),
+        };
+      }),
+
+    setTrackHeight: (trackId, height) =>
+      set((state) => {
+        if (!state.currentProject) return state;
+        return {
+          currentProject: {
+            ...state.currentProject,
+            tracks: state.currentProject.tracks.map((t) =>
+              t.id !== trackId
+                ? t
+                : { ...t, height: height === 'normal' ? undefined : height },
+            ),
+          },
+        };
+      }),
+
     removeTrack: (trackId) =>
       set((state) => {
         if (!state.currentProject) return state;
@@ -807,7 +849,7 @@ export const useTimelineStore = create<TimelineStore>()(
       if (!project) return;
       const playhead = state.playheadPosition;
       const crossed = project.tracks.flatMap((t) =>
-        t.clips.filter(
+        t.locked ? [] : t.clips.filter(
           (c) =>
             playhead > c.startOffset + MIN_CLIP_DURATION / 2 &&
             playhead < c.startOffset + c.duration - MIN_CLIP_DURATION / 2,
@@ -865,6 +907,7 @@ export const useTimelineStore = create<TimelineStore>()(
     trimClip: (clipId, trimStart, trimEnd) =>
       set((state) => {
         if (!state.currentProject) return state;
+        if (isClipLocked(state.currentProject, clipId)) return state;
         return {
           currentProject: {
             ...state.currentProject,
@@ -892,6 +935,7 @@ export const useTimelineStore = create<TimelineStore>()(
     trimClipLeft: (clipId, newTrimStart) =>
       set((state) => {
         if (!state.currentProject) return state;
+        if (isClipLocked(state.currentProject, clipId)) return state;
         const clip = findClip(state.currentProject, clipId);
         if (!clip) return state;
         const requestedDelta = newTrimStart - clip.trimStart;
@@ -930,6 +974,7 @@ export const useTimelineStore = create<TimelineStore>()(
     trimClipRight: (clipId, newTrimEnd) =>
       set((state) => {
         if (!state.currentProject) return state;
+        if (isClipLocked(state.currentProject, clipId)) return state;
         const clip = findClip(state.currentProject, clipId);
         if (!clip) return state;
         const requestedDelta = newTrimEnd - clip.trimEnd;
@@ -962,6 +1007,7 @@ export const useTimelineStore = create<TimelineStore>()(
     rippleTrimLeft: (clipId, newTrimStart) =>
       set((state) => {
         if (!state.currentProject) return state;
+        if (isClipLocked(state.currentProject, clipId)) return state;
         const located = (() => {
           for (const track of state.currentProject.tracks) {
             for (const clip of track.clips) {
@@ -1036,6 +1082,7 @@ export const useTimelineStore = create<TimelineStore>()(
     rippleTrimRight: (clipId, newTrimEnd) =>
       set((state) => {
         if (!state.currentProject) return state;
+        if (isClipLocked(state.currentProject, clipId)) return state;
         const located = (() => {
           for (const track of state.currentProject.tracks) {
             for (const clip of track.clips) {
@@ -1090,15 +1137,25 @@ export const useTimelineStore = create<TimelineStore>()(
         };
       }),
 
+    // Clips on locked tracks can't be selected (so nothing can edit them).
     selectClip: (clipId) =>
-      set({
-        selectedClipId: clipId,
-        selectedClipIds: clipId ? [clipId] : [],
-        selectedOverlayId: null,
+      set((state) => {
+        const id =
+          clipId && state.currentProject && isClipLocked(state.currentProject, clipId)
+            ? null
+            : clipId;
+        return {
+          selectedClipId: id,
+          selectedClipIds: id ? [id] : [],
+          selectedOverlayId: null,
+        };
       }),
 
     toggleClipSelection: (clipId) =>
       set((state) => {
+        if (state.currentProject && isClipLocked(state.currentProject, clipId)) {
+          return state;
+        }
         const next = state.selectedClipIds.includes(clipId)
           ? state.selectedClipIds.filter((id) => id !== clipId)
           : [...state.selectedClipIds, clipId];
@@ -1112,11 +1169,15 @@ export const useTimelineStore = create<TimelineStore>()(
       }),
 
     setSelectedClipIds: (clipIds) =>
-      set({
-        selectedClipIds: clipIds,
-        selectedClipId:
-          clipIds.length > 0 ? clipIds[clipIds.length - 1] ?? null : null,
-        selectedOverlayId: null,
+      set((state) => {
+        const ids = state.currentProject
+          ? withoutLocked(state.currentProject, clipIds)
+          : clipIds;
+        return {
+          selectedClipIds: ids,
+          selectedClipId: ids.length > 0 ? ids[ids.length - 1] ?? null : null,
+          selectedOverlayId: null,
+        };
       }),
 
     selectOverlay: (overlayId) =>
@@ -1556,7 +1617,7 @@ export const useTimelineStore = create<TimelineStore>()(
           currentProject: {
             ...project,
             tracks: project.tracks.map((track) => {
-              if (track.id !== trackId) return track;
+              if (track.id !== trackId || track.locked) return track;
               const nextClips: AnyClip[] = [];
               for (const clip of track.clips) {
                 const clipEnd = clip.startOffset + clip.duration;
@@ -1585,6 +1646,7 @@ export const useTimelineStore = create<TimelineStore>()(
           currentProject: {
             ...project,
             tracks: project.tracks.map((track) => {
+              if (track.locked) return track;
               const nextClips: AnyClip[] = [];
               for (const clip of track.clips) {
                 const clipEnd = clip.startOffset + clip.duration;
@@ -1662,9 +1724,11 @@ export const useTimelineStore = create<TimelineStore>()(
           // (audio on video tracks is structurally invalid).
           const orig = work.find((w) => w.track.id === originalTrackId);
           const candidates: typeof work = [];
-          if (orig && orig.track.type === clip.kind) candidates.push(orig);
+          if (orig && orig.track.type === clip.kind && !orig.track.locked) {
+            candidates.push(orig);
+          }
           for (const w of work) {
-            if (w === orig) continue;
+            if (w === orig || w.track.locked) continue;
             if (w.track.type === clip.kind) candidates.push(w);
           }
 
@@ -1742,7 +1806,9 @@ export const useTimelineStore = create<TimelineStore>()(
         if (hi <= lo) return state;
 
         const droppedClipIds = new Set<ClipId>();
+        // Range edits leave locked tracks exactly as they are.
         const nextTracks = project.tracks.map((track) => {
+          if (track.locked) return track;
           const nextClips: AnyClip[] = [];
           for (const clip of track.clips) {
             const clipEnd = clip.startOffset + clip.duration;
@@ -1840,7 +1906,9 @@ export const useTimelineStore = create<TimelineStore>()(
         if (shift <= 0) return state;
 
         const droppedClipIds = new Set<ClipId>();
+        // Range edits leave locked tracks exactly as they are.
         const nextTracks = project.tracks.map((track) => {
+          if (track.locked) return track;
           const nextClips: AnyClip[] = [];
           for (const clip of track.clips) {
             const clipEnd = clip.startOffset + clip.duration;

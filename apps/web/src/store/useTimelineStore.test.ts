@@ -170,3 +170,56 @@ describe('zoom keyframes through edits', () => {
     expect((clipsById()[id] as VideoClip).zoomKeyframes).toBeUndefined();
   });
 });
+
+describe('track lock', () => {
+  const setup = () => {
+    const s = useTimelineStore.getState();
+    const a = s.insertMediaClip('m1', { startOffset: 0 }); // V1 [0,10)
+    const b = s.insertMediaClip('m1', { startOffset: 12 }); // V1 [12,22)
+    if (!a || !b) throw new Error('insert failed');
+    s.setTrackLocked(v1().id, true);
+    return { a, b };
+  };
+
+  it('locked clips cannot be selected, deleted, trimmed, moved or split', () => {
+    const { a, b } = setup();
+    const s = useTimelineStore.getState();
+    expect(s.selectedClipIds).toEqual([]); // locking dropped the selection
+    s.selectClip(a);
+    expect(useTimelineStore.getState().selectedClipIds).toEqual([]);
+    s.removeClips([a]);
+    s.rippleDeleteClips([b]);
+    s.trimClipRight(a, 4);
+    s.moveClip(b, 30);
+    s.updatePlayhead(5);
+    useTimelineStore.getState().splitClipsAtPlayhead();
+    useTimelineStore.getState().closeGaps([v1().id]);
+    expect(v1().clips.map((c) => [c.id, c.startOffset, c.duration])).toEqual([[a, 0, 10], [b, 12, 10]]);
+  });
+
+  it('range edits and inserts skip locked tracks', () => {
+    setup();
+    const s = useTimelineStore.getState();
+    s.setInPoint(2);
+    s.setOutPoint(14);
+    useTimelineStore.getState().deleteRange();
+    expect(v1().clips).toHaveLength(2);
+    // With every video track locked, nothing can be placed.
+    expect(useTimelineStore.getState().insertMediaClip('m1', { startOffset: 40 })).toBeNull();
+  });
+
+  it('unlocking restores editing', () => {
+    const { a } = setup();
+    useTimelineStore.getState().setTrackLocked(v1().id, false);
+    useTimelineStore.getState().removeClips([a]);
+    expect(v1().clips).toHaveLength(1);
+  });
+
+  it('track height cycles normal → tall → compact and persists on the track', () => {
+    const s = useTimelineStore.getState();
+    s.setTrackHeight(v1().id, 'tall');
+    expect(v1().height).toBe('tall');
+    s.setTrackHeight(v1().id, 'normal');
+    expect(v1().height).toBeUndefined();
+  });
+});

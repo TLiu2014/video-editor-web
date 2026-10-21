@@ -54,6 +54,29 @@ export function findClipWithTrack(
 }
 
 // ---------------------------------------------------------------------------
+// Track lock
+// ---------------------------------------------------------------------------
+
+/** Ids of every clip that sits on a locked track. */
+export function lockedClipIds(project: VideoProject): Set<ClipId> {
+  const out = new Set<ClipId>();
+  for (const t of project.tracks) {
+    if (t.locked) for (const c of t.clips) out.add(c.id);
+  }
+  return out;
+}
+
+export function isClipLocked(project: VideoProject, clipId: ClipId): boolean {
+  return !!findClipWithTrack(project, clipId)?.track.locked;
+}
+
+/** `ids` minus anything on a locked track. */
+export function withoutLocked(project: VideoProject, ids: Iterable<ClipId>): ClipId[] {
+  const locked = lockedClipIds(project);
+  return [...ids].filter((id) => !locked.has(id));
+}
+
+// ---------------------------------------------------------------------------
 // Free-slot placement
 // ---------------------------------------------------------------------------
 
@@ -174,6 +197,9 @@ export function moveClipsBy(
 ): VideoProject {
   const moving = expandWithGroups(project, ids);
   if (moving.size === 0 || delta === 0) return project;
+  // A group with a member on a locked track can't move at all.
+  const locked = lockedClipIds(project);
+  for (const id of moving) if (locked.has(id)) return project;
   const { minDelta, maxDelta } = moveDeltaRange(project, moving);
   const applied = Math.max(minDelta, Math.min(maxDelta, delta));
   if (Math.abs(applied) < 1e-9) return project;
@@ -201,6 +227,7 @@ export function placeClip(
     ? project.tracks.find((t) => t.id === targetTrackId)
     : source;
   if (!target || target.type !== clip.kind) return project;
+  if (source.locked || target.locked) return project;
 
   const start = findFreeSlot(
     target.clips,
@@ -237,10 +264,9 @@ export function removeClips(
 ): VideoProject {
   return {
     ...project,
-    tracks: project.tracks.map((t) => ({
-      ...t,
-      clips: t.clips.filter((c) => !ids.has(c.id)),
-    })),
+    tracks: project.tracks.map((t) =>
+      t.locked ? t : { ...t, clips: t.clips.filter((c) => !ids.has(c.id)) },
+    ),
   };
 }
 
@@ -257,7 +283,7 @@ export function rippleRemoveClips(
   return {
     ...project,
     tracks: project.tracks.map((t) => {
-      const removed = t.clips.filter((c) => ids.has(c.id));
+      const removed = t.locked ? [] : t.clips.filter((c) => ids.has(c.id));
       if (removed.length === 0) return t;
       return {
         ...t,
@@ -289,7 +315,7 @@ export function closeGaps(
   return {
     ...project,
     tracks: project.tracks.map((t) => {
-      if (!trackIds.has(t.id) || t.clips.length < 2) return t;
+      if (!trackIds.has(t.id) || t.locked || t.clips.length < 2) return t;
       const sorted = [...t.clips].sort((a, b) => a.startOffset - b.startOffset);
       const first = sorted[0];
       if (!first) return t;
@@ -334,6 +360,7 @@ export function checkJoin(project: VideoProject, ids: ClipId[]): JoinCheck {
   if (found.some((f) => f.track.id !== trackId)) {
     return { ok: false, reason: 'Clips must be on the same track.' };
   }
+  if (found[0]?.track.locked) return { ok: false, reason: 'The track is locked.' };
   const ordered = found
     .map((f) => f.clip)
     .sort((a, b) => a.startOffset - b.startOffset);
@@ -470,7 +497,7 @@ export function insertAssetClip(
   asset: MediaAsset,
   opts: { trackId?: TrackId; startOffset: number },
 ): { project: VideoProject; clip: AnyClip } | null {
-  const sameKind = project.tracks.filter((t) => t.type === asset.kind);
+  const sameKind = project.tracks.filter((t) => t.type === asset.kind && !t.locked);
   const preferred =
     sameKind.find((t) => t.id === opts.trackId) ?? sameKind[0];
   if (!preferred) return null;
@@ -549,7 +576,7 @@ export function findReorderTarget(
   const located = findClipWithTrack(project, clipId);
   const track = project.tracks.find((t) => t.id === trackId);
   if (!located || !track || track.type !== located.clip.kind) return null;
-  if (located.clip.groupId) return null;
+  if (located.clip.groupId || located.track.locked || track.locked) return null;
   const hovered = track.clips.find(
     (c) =>
       c.id !== clipId && pointerTime >= c.startOffset && pointerTime < clipEnd(c),
@@ -578,6 +605,8 @@ export function reorderClip(
 ): VideoProject {
   const located = findClipWithTrack(project, clipId);
   if (!located || target.targetClipId === clipId) return project;
+  if (located.track.locked) return project;
+  if (project.tracks.find((t) => t.id === target.trackId)?.locked) return project;
   const { clip } = located;
   const without = rippleRemoveClips(project, new Set([clipId]));
   const anchor = findClipWithTrack(without, target.targetClipId);

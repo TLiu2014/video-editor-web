@@ -271,7 +271,17 @@ export interface TimelineTrack {
    * specific layers without toggling mutes elsewhere.
    */
   solo?: boolean;
+  /**
+   * Locked tracks can't be edited: their clips can't be selected,
+   * moved, trimmed, split or deleted, nothing can be dropped or pasted
+   * onto them, and range / gap edits skip them (Premiere's track lock).
+   */
+  locked?: boolean;
+  /** Row height preset; absent = 'normal'. */
+  height?: TrackHeight;
 }
+
+export type TrackHeight = 'compact' | 'normal' | 'tall';
 
 export interface ProjectResolution {
   width: number;

@@ -187,7 +187,7 @@ The export dialog estimates memory use (`projectMetrics.exportMemoryRisk`) befor
 ### Timeline and clips
 | Feature | Behavior | Code |
 |---|---|---|
-| Tracks | V1 and A1 by default; add or remove V*n*/A*n*; mute and solo per track. The last track of each type can't be removed. | `Track`, store |
+| Tracks | V1 and A1 by default; add or remove V*n*/A*n*; mute, solo, **lock** and **height** (compact / normal / tall) per track. The last track of each type can't be removed. Lock is enforced in the store and `timelineOps`, so no shortcut, palette command or menu can edit a locked track: selection, place / move / reorder, trims, split, delete, paste, insert, join, close gaps and range edits all skip it. | `Track`, store, `timelineOps` |
 | **Reorder** | Drop a clip *onto* another clip and it's inserted before or after it, depending on which half the pointer is over. Its old spot closes up and later clips shift right. A marker shows the insertion point. Works across same-type tracks; not for grouped clips. | `findReorderTarget`, `reorderClip` |
 | **Move** | Dropped in empty space, a single clip lands in the **nearest free slot**, so it can jump past neighbors. Drag vertically onto another track of the same type. A multi-selection or group moves in lockstep and stops when any member is blocked. | `placeClip`, `moveClipsBy` |
 | Nudge | ← / → move the selection 1 px (Shift: 10 px) at the current zoom, snapping on the way | `useKeyboardShortcuts` |
@@ -269,6 +269,8 @@ Which established editor each behavior follows. "Own" means a choice made for th
 | Copy / paste at the playhead | Universal | |
 | Snapping | Universal (Camtasia: *magnetic* snapping) | |
 | Track mute (M) and solo (S) | Premiere / DAW mixers | |
+| Track lock | Premiere (track lock); Camtasia (lock track) | Locked clips can't be selected at all. |
+| Track height presets | Premiere / Camtasia track height | Three presets per track rather than a free drag. |
 | Speed 0.25–4× | Camtasia *Clip Speed*; Premiere *Speed/Duration* | |
 | Fade in/out per clip | Camtasia audio/visual fades | |
 | Zoom & pan keyframes | Camtasia *Zoom-n-Pan* / animations; Premiere *Scale & Position* keyframes | Only zoom and center, on V1, with ease in/out; no per-keyframe easing curves. Edited through sliders with auto-keying, not on-canvas. |
@@ -293,7 +295,7 @@ Which established editor each behavior follows. "Own" means a choice made for th
 - Keyframes only for zoom & pan on V1. There's no keyframed animation for PiP position, opacity, annotations or text, and no per-keyframe easing choice. `zoompan` positions in whole pixels, so very slow pans can show slight stepping.
 - Annotations and text fade, but have no other animation (no motion or scale-in), and there are no blur, spotlight or sketch-motion shapes. There are no cursor or zoom-and-pan effects. Animated GIFs import as their first frame.
 - Export is single-threaded (see section 1).
-- No track lock, no track height control, no slip or slide tools.
+- No slip or slide tools.
 - Text overlays: no font family, weight, background or alignment; they aren't on a track.
 - Audio from clips on V2 and above is always muted (preview and export).
 - PiP has no on-canvas rotate handle and no snapping or guides.

@@ -8,7 +8,11 @@ Status of the remaining gaps is tracked at the bottom.
 
 ## 2026-10-21
 
-### JKL shuttle playback
+### Track lock and track height
+- **Lock** (padlock in the track header): a locked track's clips can't be selected, moved, trimmed, split or deleted. Nothing can be dropped, pasted or moved onto it, and range edits, close gaps and split-all skip it. Locked tracks are striped. This follows Premiere's track lock.
+- **Height** (↕ in the track header): cycles normal, tall and compact for each track. Thumbnails, waveforms and labels fit the row, and the setting is saved with the project.
+
+### JKL shuttle playback — `5680cff`
 - **L** plays forward and **J** plays in reverse. Press again for 2×, 4× and 8×. **K** stops, and **K + J / L** steps one frame. This follows Premiere, FCP and Resolve.
 - **Space** always plays at 1×. A speed badge (for example "▶▶ 4×") shows on the transport bar while shuttling.
 - In reverse the picture follows the playhead by seeking, with no sound, because browsers can't play media backwards.
@@ -56,7 +60,7 @@ Status of the remaining gaps is tracked at the bottom.
 | Gap | Status |
 |---|---|
 | JKL playback | Done (this release) |
-| Track lock and track height | Planned next |
-| Text styling (font, weight, alignment, background, outline) | Planned |
+| Track lock and track height | Done (this release) |
+| Text styling (font, weight, alignment, background, outline) | Planned next |
 | Keyframes for PiP and annotations | Not started |
 | Deployment of the editor and marketing site | Needs a decision on where to host |
