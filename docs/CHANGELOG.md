@@ -8,6 +8,9 @@ Status of the remaining gaps is tracked at the bottom.
 
 ## 2026-10-21
 
+### Fix: Home link pointed at a dead localhost address
+- The toolbar's **Home** link goes to the marketing site, which is a separate app. With nothing configured it fell back to `http://localhost:3000`, which only works if the marketing dev server is also running. The link now appears only when `VITE_MARKETING_URL` is set.
+
 ### Keyframes for picture-in-picture and annotations — `28b2e82`
 - **PiP motion:** keyframed position, scale and rotation for clips on V2 and above. Turn on **Animate** in the PiP section; after that, sliders and preview drags set keyframes at the playhead. Sky-blue diamonds mark them on the clip. Opacity stays fixed, because animating it would be too slow to export in the browser.
 - **Motion paths for text and annotations:** turn on **Animate position**, then drag the overlay in the preview at different times. Diamonds show on its overlay-lane bar, and moving the bar moves the animation with it.

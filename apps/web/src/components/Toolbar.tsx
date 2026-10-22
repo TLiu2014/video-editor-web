@@ -48,6 +48,7 @@ import { Button } from './ui/Button';
 import * as Menu from './ui/DropdownMenu';
 
 const MOD = isMac ? '⌘' : 'Ctrl';
+const MARKETING_URL = import.meta.env.VITE_MARKETING_URL?.trim() || null;
 
 const ANNOTATION_ITEMS: { kind: ShapeKind; label: string; icon: React.ReactNode }[] = [
   { kind: 'callout', label: 'Add Callout', icon: <MessageSquareIcon /> },
@@ -371,20 +372,21 @@ export function Toolbar() {
       <div className="flex-1" />
 
       <div className="flex shrink-0 items-center gap-2">
-        {/* Link back to the marketing site. Reads VITE_MARKETING_URL
-            at build time; defaults to the Next dev port so a fresh
-            `pnpm dev` works without env config. */}
-        <a
-          href={
-            import.meta.env.VITE_MARKETING_URL ?? 'http://localhost:3000'
-          }
-          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-chrome px-3 text-[12px] text-text-secondary transition hover:text-text-primary"
-          title="Back to homepage"
-          aria-label="Back to homepage"
-        >
-          <HomeIcon className="size-4" />
-          Home
-        </a>
+        {/* Link back to the marketing site — a separate app, not this
+            server. Shown only when VITE_MARKETING_URL is set (build
+            time); with no marketing site configured there's nowhere
+            to go, so no dead link. */}
+        {MARKETING_URL ? (
+          <a
+            href={MARKETING_URL}
+            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-chrome px-3 text-[12px] text-text-secondary transition hover:text-text-primary"
+            title="Back to homepage"
+            aria-label="Back to homepage"
+          >
+            <HomeIcon className="size-4" />
+            Home
+          </a>
+        ) : null}
         <SettingsModal />
         <ThemeToggle />
 

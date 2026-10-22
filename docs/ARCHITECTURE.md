@@ -19,7 +19,7 @@ video-editor-web/                 pnpm + Turborepo monorepo
 
 | App | Stack | Dev URL | Talks to |
 |---|---|---|---|
-| `apps/web` | Vite 6, React 19, Zustand 5, Tailwind 4, Radix UI, `@ffmpeg/ffmpeg` 0.12, `idb-keyval`, `fflate` | `:5173` | `VITE_MARKETING_URL` (Home link) |
+| `apps/web` | Vite 6, React 19, Zustand 5, Tailwind 4, Radix UI, `@ffmpeg/ffmpeg` 0.12, `idb-keyval`, `fflate` | `:5173` | `VITE_MARKETING_URL` (Home link; hidden when unset) |
 | `apps/marketing` | Next.js 15, Tailwind 4 | `:3000` | `NEXT_PUBLIC_EDITOR_URL` ("Open Editor") |
 
 Commands (from the repo root): `pnpm dev`, `pnpm build`, `pnpm typecheck`. Tests: `pnpm --filter @video-editor-web/web test` (Vitest).

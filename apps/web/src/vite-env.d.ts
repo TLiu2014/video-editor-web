@@ -11,6 +11,8 @@
  * never ship a production build with real keys baked in.
  */
 interface ImportMetaEnv {
+  /** Marketing site URL for the toolbar's Home link; unset hides it. */
+  readonly VITE_MARKETING_URL?: string;
   readonly VITE_OPENAI_API_KEY?: string;
   readonly VITE_DEEPGRAM_API_KEY?: string;
   readonly VITE_GEMINI_API_KEY?: string;
